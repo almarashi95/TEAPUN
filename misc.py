@@ -60,6 +60,7 @@ def gen_box(psf, crd, enforce_cubic=False, octahedron=False):
 def pack_system(
     polymerchainpdb,
     n,
+    solventres,
     solventpdb,
     n_s,
     verbose=False,
@@ -90,7 +91,7 @@ def pack_system(
             f"structure {an}\nnumber {a_n}\ninside box 0. 0. 0. {boxsize*1} {boxsize*.9} {boxsize*.8}\nradius 1.0\nend structure\n"
         )
     f.write(
-        f"output {polymerchainpdb.split('.')[0].split('_')[0]}_{solventpdb.lower()}"
+        f"output {polymerchainpdb.split('.')[0].split('_')[0]}_{solventres.lower()}.pdb"
     )
     f.close()
     os.system("packmol <tmp_packmol.inp> packmol.out")

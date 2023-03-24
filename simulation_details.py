@@ -1,6 +1,7 @@
 from openmm.app import *
 from openmm import *
 from openmm.unit import nanometers
+import numpy as np
 
 
 def freeze_polymer(psf, PolymerChain):
@@ -24,16 +25,28 @@ def eliminate_LJ(psf):
                 epsilons.append(param[2])
                 sigm.append(param[1])
                 j.setParticleParameters(
-                    k, charge=param[0], sigma=0.1 * nanometers, epsilon=0
+                    k, charge=param[0], sigma=0.01 * nanometers, epsilon=0
                 )
             break
     return system, epsilons, sigm
 
 
-def useBMH(PolymerChain, psf, epsilons, sigm, NBFix=False, a=7.953, f=5.871):
+def eliminate_elec(psf):
+    system = psf.system
+    for i in range(system.getNumForces()):
+        j = system.getForce(i)
+        if type(j) == NonbondedForce:
+            for k in range(system.getNumParticles()):
+                param = j.getParticleParameters(k)
+                j.setParticleParameters(k, charge=0, sigma=param[1], epsilon=param[2])
+            break
+    return system
+
+
+def usemodBMH(PolymerChain, psf, epsilons, sigm, NBfix=False, a=7.953, f_param=5.871):
     system = psf.system
     group = []
-    if NBFix:
+    if NBfix:
         for i in psf.topology.chains():
             print(i.id)
             if i.id.startswith(PolymerChain.id.upper()):
@@ -46,7 +59,7 @@ def useBMH(PolymerChain, psf, epsilons, sigm, NBFix=False, a=7.953, f=5.871):
                 for f in i.atoms():
                     group.append(-1)
     else:
-        for i in psf.system.getNumParticles:
+        for i in range(psf.system.getNumParticles()):
             group.append(-1)
     for i in range(system.getNumForces()):
         j = system.getForce(i)
@@ -60,7 +73,7 @@ def useBMH(PolymerChain, psf, epsilons, sigm, NBFix=False, a=7.953, f=5.871):
     energy += "eps=sqrt(eps1*eps2);rm=0.5*(rm1+rm2)"
     nb_force = CustomNonbondedForce(energy)
     nb_force.addGlobalParameter("a", a)
-    nb_force.addGlobalParameter("f", f)
+    nb_force.addGlobalParameter("f", f_param)
     nb_force.addPerParticleParameter("eps")
     nb_force.addPerParticleParameter("rm")
     nb_force.addPerParticleParameter("group")
@@ -79,8 +92,8 @@ def useBMH(PolymerChain, psf, epsilons, sigm, NBFix=False, a=7.953, f=5.871):
 def set_octahedron(psf):
     vectors = (
         Vec3(1, 0, 0),
-        Vec3(1 / 3, 2 * sqrt(2) / 3, 0),
-        Vec3(-1 / 3, sqrt(2) / 3, sqrt(6) / 3),
+        Vec3(1 / 3, 2 * np.sqrt(2) / 3, 0),
+        Vec3(-1 / 3, np.sqrt(2) / 3, np.sqrt(6) / 3),
     )
     a = 1.01 * psf.boxLengths[0]
     boxVectors = [a * v for v in vectors]

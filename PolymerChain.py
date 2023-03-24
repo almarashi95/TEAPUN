@@ -5,8 +5,9 @@ from openmm.unit import *
 from sys import stdout
 import random
 import os
-from topology import *
+import topo
 from misc import *
+from simulation_details import *
 
 
 class PolymerChain:
@@ -88,18 +89,22 @@ class PolymerChain:
         self.dihedrals = []
         for i in angles:
             # print(i.split())
-            self.angles.append(Angle_type(*i.split()))
+            self.angles.append(topo.Angle_type(*i.split()))
         for i in bonds:
-            self.bonds.append(Bond_type(*i.split()))
+            self.bonds.append(topo.Bond_type(*i.split()))
         for i in dihedrals:
             # print(i)
-            self.dihedrals.append(Dihedral_type(*i.split()))
+            self.dihedrals.append(topo.Dihedral_type(*i.split()))
         for k in residues_in_chain:
-            self.residues.append(Residue(k))
+            # try:
+            self.residues.append(topo.Residue(k))
+        # except:
+        #     print(k)
+        #     quit()
         ##all residues in toppar submitted
         self._allresidues = []
         for l in residues:
-            self._allresidues.append(Residue(l))
+            self._allresidues.append(topo.Residue(l))
 
     def build_Monomers(self, verbose=False):
         # Building Monomer psf/crd using internal coordinates
@@ -262,10 +267,8 @@ class PolymerChain:
             nonbondedMethod=PME,
             ewaldErrorTolerance=0.005,
             nonbondedCutoff=1.5 * nanometer,
-            constraints=HBonds,
-            rigidWater=True,
-            verbose=True,
-            solventDielectric=74,
+            solventDielectric=60,
+            constraints=None,
         )
 
         # #########################################################################################################################################################
@@ -274,11 +277,13 @@ class PolymerChain:
         integrator = NoseHooverIntegrator(
             300 * kelvin, 50 / picosecond, 0.0001 * picoseconds
         )
+        # system, epsilons, sigm = eliminate_LJ(psf)
+        # system = usemodBMH(self, psf, epsilons, sigm, NBfix=False)
         simulation = Simulation(psf.topology, system, integrator, platform, prop)
         simulation.context.setPositions(crd.positions)
         simulation.reporters.append(
             StateDataReporter(
-                stdout, 1_000, step=True, potentialEnergy=True, volume=True
+                stdout, 1_000, step=True, totalEnergy=True, separator="\t"
             )
         )
         system.addForce(MonteCarloBarostat(1 * atmospheres, 300 * kelvin, 10))
@@ -301,7 +306,7 @@ class PolymerChain:
         with open(f"{self.id.lower()}_relax.rst", "w") as f:
             f.write(XmlSerializer.serialize(state))
 
-    def solvate(
+    def solvate_old(
         self,
         num_of_Polymers,
         solvent_res,
@@ -309,6 +314,7 @@ class PolymerChain:
         pack=True,
         verbose=False,
         pdb_file="default",
+        solvent_pdb="default",
         boxsize=1500,
         salt=False,
         c="",
@@ -395,10 +401,14 @@ class PolymerChain:
         # refering to packmol!
         #######################################################################################################
         if pack:
+            if solvent_pdb == "default":
+                solvent_pdb = f"{solvent_res.lower()}.pdb"
+
             pack_system(
                 pdb_file,
                 num_of_Polymers,
-                f"{solvent_res.lower()}.pdb",
+                solvent_res,
+                solvent_pdb,
                 solvent_num,
                 verbose=verbose,
                 boxsize=boxsize,
@@ -434,111 +444,40 @@ class PolymerChain:
             params,
             nonbondedMethod=CutoffPeriodic,
             nonbondedCutoff=1.5 * nanometer,
-            # hydrogenMass = 4*amu,
-            rigidWater=False,
+            constraints=None,
         )
         integrator = NoseHooverIntegrator(
             300 * kelvin, 50 / picosecond, 0.0001 * picoseconds
         )
-        group = []
-        for i in psf.topology.chains():
-            print(i.id)
-            if i.id.startswith(self.id.upper()):
-                for f in i.atoms():
-                    if f.name != "STYR":
-                        group.append(1)
-                    else:
-                        group.append(2)
-            else:
-                for f in i.atoms():
-                    group.append(-1)
-        # print(group)
+        barostat = system.addForce(
+            MonteCarloBarostat(1 * atmospheres, 300 * kelvin, 10)
+        )
 
-        # for i in psf.topology.chains():
-        #     if i.id == self.id.upper():
-        #         for j in i.atoms():
-        #             # print(j.name, end='\r')
-        #             system.setParticleMass(j.index, 0.0)
-        #             # if j.name.startswith('CO'):
-        #             #    #print('aye')
-        ##             #    system.addConstraint(j.index,j.index+1,0.189)
-
-        epsilons = []
-        sigm = []
-        for i in range(system.getNumForces()):
-            j = system.getForce(i)
-            if type(j) == NonbondedForce:
-                for k in range(system.getNumParticles()):
-                    param = j.getParticleParameters(k)
-                    epsilons.append(param[2])
-                    sigm.append(param[1])
-                    j.setParticleParameters(
-                        k, charge=param[0], sigma=0.1 * nanometers, epsilon=0
-                    )
-                break
-
-        energy = "((scale*eps)/((1-(f/a))-((6-f)/12)))*((((6-f)/12)*((rm/r)^12))-((rm/r)^6)+((f/a)*exp(a*(1-(r/rm)))));scale=select(group1+group2,1,1.2);eps=sqrt(eps1*eps2);rm=0.5*(rm1+rm2)"
-        nb_force = CustomNonbondedForce(energy)
-        # print(energy)
-        nb_force.addGlobalParameter("a", 7.953)
-        nb_force.addGlobalParameter("f", 5.871)
-        nb_force.addPerParticleParameter("eps")
-        nb_force.addPerParticleParameter("rm")
-        nb_force.addPerParticleParameter("group")
-        print(system.getNumParticles())
-        for i in range(j.getNumParticles()):
-            nb_force.addParticle([epsilons[i], sigm[i], group[i]])
-
-        nb_force.setNonbondedMethod(CustomNonbondedForce.CutoffPeriodic)
-        nb_force.setCutoffDistance(1.5 * nanometers)
-        system.addForce(nb_force)
-        print(nb_force.getNumParticles())
-        for index in range(j.getNumExceptions()):
-            l, k, chargeprod, sigma, epsilon = j.getExceptionParameters(index)
-            nb_force.addExclusion(l, k)
-        for i in psf.topology.chains():
-            if i.id.startswith(self.id.upper()):
-                for j in i.atoms():
-                    # print(j.name, end='\r')
-                    system.setParticleMass(j.index, 0.0)
-                    # if j.name.startswith('CO'):
-                    #    #print('aye')
-                    #    system.addConstraint(j.index,j.index+1,0.189)
-
+        # system, epsilons, sigm = eliminate_LJ(psf)
+        # # system = eliminate_elec(psf)
+        # system = usemodBMH(self, psf, epsilons, sigm, NBfix=True)
+        system = freeze_polymer(psf, self)
         simulation = Simulation(psf.topology, system, integrator, platform, prop)
         simulation.context.setPositions(pdb.positions)
         try:
-            vectors = (
-                openmm.Vec3(1, 0, 0),
-                openmm.Vec3(1 / 3, 2 * sqrt(2) / 3, 0),
-                openmm.Vec3(-1 / 3, sqrt(2) / 3, sqrt(6) / 3),
-            )
-            a = 1.01 * psf.boxLengths[0]
-            boxVectors = [a * v for v in vectors]
+            boxVectors = set_octahedron(psf)
             print(f"setting {boxVectors}")
             simulation.context.setPeriodicBoxVectors(*boxVectors)
         except:
             print("failed to Transform into octahedron")
         print("MINImizing ENERgy")
         simulation.minimizeEnergy(maxIterations=20_000_000)
-        for i in psf.topology.chains():
-            if i.id.startswith(self.id.upper()):
-                for j in i.atoms():
-                    # print(j.name, end='\r')
-                    system.setParticleMass(j.index, 0.0)
-                    # if j.name.startswith('CO'):
-                    #    #print('aye')
-                    #    system.addConstraint(j.index,j.index+1,0.189)
         simulation.context.reinitialize(preserveState=True)
         simulation.context.setVelocitiesToTemperature(300 * kelvin)
         simulation.reporters.append(
             StateDataReporter(
                 stdout,
-                1500,
+                2000,
                 step=True,
                 time=True,
                 potentialEnergy=True,
                 kineticEnergy=True,
+                totalEnergy=True,
                 temperature=True,
                 volume=True,
                 density=True,
@@ -546,17 +485,13 @@ class PolymerChain:
                 separator="\t",
             )
         )
-
         simulation.reporters.append(DCDReporter(f"pre_comp.dcd", 10_000))
-        for t in [1, 2, 4, 5, 8, 10, 15, 20, 15, 10, 8, 5, 4, 2, 1]:
-            barostat = system.addForce(
-                MonteCarloBarostat(t * atmospheres, 300 * kelvin, 25)
-            )
-            simulation.context.reinitialize(preserveState=True)
-            simulation.step(10_000)
-            simulation.minimizeEnergy(maxIterations=2_000)
-            simulation.context.setVelocitiesToTemperature(300 * kelvin)
-            system.removeForce(barostat)
+        for t in [1, 2, 4, 4, 2, 1]:
+            print(t)
+            simulation.context.setParameter(system.getForce(barostat).Pressure(), t)
+            simulation.step(200_000)
+            simulation.minimizeEnergy(maxIterations=200_000_000)
+            # simulation.context.setVelocitiesToTemperature(300 * kelvin)
         print("\nINITial SYSTem ENERgy")
         print(simulation.context.getState(getEnergy=True).getPotentialEnergy())
         pdbfile.PDBFile.writeModel(
@@ -565,6 +500,7 @@ class PolymerChain:
             file=open("init.pdb", "w"),
         )
         ctr = 0
+        boxv = simulation.context.getState().getPeriodicBoxVectors()
         psf.boxVectors = boxv
         for dt in [0.0001, 0.0001, 0.0002, 0.0003, 0.0005, 0.001, 0.005]:
             dt2p = [1, 1, 1, 1, 1, 1, 1]
@@ -577,69 +513,20 @@ class PolymerChain:
                 params,
                 nonbondedMethod=CutoffPeriodic,
                 nonbondedCutoff=1.3 * nanometer,
-                # hydrogenMass = 4*amu,
                 rigidWater=False,
-                soluteDielectric=80,
-                solventDielectric=80,
+                solventDielectric=60,
             )
-            # for i in psf.topology.chains():
-            #     #print("Set Constraints")
-            #     if i.id == self.id.upper():
-            #         print("Set Constraints")
-            #         for j in i.atoms():
-            #             # print(j.name, end='\r')
-            #             if j.name.startswith("CO"):
-            #                 # print('aye')
-            #                 system.addConstraint(j.index, j.index + 1, 0.189)
-            #             elif j.name.startswith("BB"):
-            #                 system.addConstraint(j.index, j.index + 1, 0.286)
             integrator = NoseHooverIntegrator(
                 300 * kelvin, 50 / picosecond, dt * picoseconds
             )
             barostat = system.addForce(
                 MonteCarloBarostat(dt2p[ctr] * atmospheres, 300 * kelvin, 10)
             )
-
-            epsilons = []
-            sigm = []
-            for i in range(system.getNumForces()):
-                j = system.getForce(i)
-                if type(j) == NonbondedForce:
-                    for k in range(system.getNumParticles()):
-                        param = j.getParticleParameters(k)
-                        epsilons.append(param[2])
-                        sigm.append(param[1])
-                        j.setParticleParameters(k, charge=param[0], sigma=0, epsilon=0)
-                    break
-
-            # energy = "(eps /((1-(f/a))-((6-f)/12)))*"
-            # energy += "( ((6-f)/12)*(rm/r)^12)"
-            # energy += "-((rm/r)^6))"
-            # energy += "+ (f/a exp(a*(1-(r/rm)))))"
-            energy = "(scale*eps/((1-(f/a))-((6-f)/12)))*((((6-f)/12)*((rm/r)^12))-((rm/r)^6)+((f/a)*exp(a*(1-(r/rm)))));scale=select(group1+group2,1,1.1);eps=sqrt(eps1*eps2);rm=0.5*(rm1+rm2)"
-            nb_force = CustomNonbondedForce(energy)
-            # print(energy)
-            nb_force.addGlobalParameter("a", 7.953)
-            nb_force.addGlobalParameter("f", 5.871)
-            nb_force.addPerParticleParameter("eps")
-            nb_force.addPerParticleParameter("rm")
-            nb_force.addPerParticleParameter("group")
-
-            print(system.getNumParticles())
-            for i in range(j.getNumParticles()):
-                nb_force.addParticle([epsilons[i], sigm[i], group[i]])
-
-            nb_force.setNonbondedMethod(CustomNonbondedForce.CutoffPeriodic)
-            nb_force.setCutoffDistance(1.5 * nanometers)
-            system.addForce(nb_force)
-            print(nb_force.getNumParticles())
-            for index in range(j.getNumExceptions()):
-                l, k, chargeprod, sigma, epsilon = j.getExceptionParameters(index)
-                nb_force.addExclusion(l, k)
+            system, epsilons, sigm = eliminate_LJ(psf)
+            system = system = usemodBMH(self, psf, epsilons, sigm, NBfix=True)
             simulation = Simulation(psf.topology, system, integrator, platform, prop)
             with open(rst, "r") as f:
                 simulation.context.setState(XmlSerializer.deserialize(f.read()))
-
             simulation.reporters.append(
                 StateDataReporter(
                     stdout,
@@ -648,6 +535,7 @@ class PolymerChain:
                     time=True,
                     potentialEnergy=True,
                     kineticEnergy=True,
+                    totalEnergy=True,
                     temperature=True,
                     volume=True,
                     density=True,
@@ -658,13 +546,6 @@ class PolymerChain:
             if ctr == 0:
                 try:
                     simulation.context.setPeriodicBoxVectors(*boxv)
-                    # vectors = (
-                    #    openmm.Vec3(1, 0, 0),
-                    #    openmm.Vec3(1 / 3, 2 * sqrt(2) / 3, 0),
-                    #    openmm.Vec3(-1 / 3, sqrt(2) / 3, sqrt(6) / 3),
-                    # )
-                    # a = psf.boxLengths[0]
-                    # boxVectors = [a * v for v in vectors]
                     print(
                         f"setting {simulation.context.getState().getPeriodicBoxVectors()}"
                     )
@@ -681,15 +562,8 @@ class PolymerChain:
                     20_000,
                 )
             )
-            # simulation.reporters.append(
-            #     EnergyReporter(
-            #         f"{self.id.lower()}_equilibration_energy_{dt}_{dt2p[ctr]}_{ctr}.out",
-            #         20_000,
-            #     )
-            # )
             print("STARting DYNAmics")
             simulation.step(nstep // 8)
-
             boxv = simulation.context.getState().getPeriodicBoxVectors()
             state = simulation.context.getState(getPositions=True, getVelocities=True)
             with open(rst, "w") as f:
@@ -722,7 +596,6 @@ class PolymerChain:
                 params,
                 nonbondedMethod=CutoffPeriodic,
                 nonbondedCutoff=1.5 * nanometer,
-                # constraints=HBonds,
                 rigidWater=False,
                 soluteDielectric=80,
                 solventDielectric=80,
@@ -746,30 +619,6 @@ class PolymerChain:
                     simulation.step(10_000)
                     integrator.setStepSize(dt)
                     simulation.context.reinitialize(preserveState=True)
-            # if ctr == 0:
-            #     try:
-            #         if boxl == "None":
-            #             vectors = (
-            #                 openmm.Vec3(1, 0, 0),
-            #                 openmm.Vec3(1 / 3, 2 * sqrt(2) / 3, 0),
-            #                 openmm.Vec3(-1 / 3, sqrt(2) / 3, sqrt(6) / 3),
-            #             )
-            #             a = psf.boxLengths[0]
-            #             boxVectors = [a * v for v in vectors]
-            #             print(f"setting {boxVectors}")
-            #             simulation.context.setPeriodicBoxVectors(*boxVectors)
-            #         else:
-            #             print(boxl)
-            #             vectors = (
-            #                 openmm.Vec3(1, 0, 0),
-            #                 openmm.Vec3(1 / 3, 2 * sqrt(2) / 3, 0),
-            #                 openmm.Vec3(-1 / 3, sqrt(2) / 3, sqrt(6) / 3),
-            #             )
-            #             boxVectors = [boxl * v for v in vectors] * nanometer
-            #             print(f"setting {boxVectors}")
-            #             simulation.context.setPeriodicBoxVectors(*boxVectors)
-            #     except:
-            #         print("failed\nusing init box")
             if ctr > 0:
                 simulation.context.setPeriodicBoxVectors(*boxv)
             simulation.reporters.append(

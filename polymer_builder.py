@@ -8,25 +8,26 @@ chain = PolymerChain(
     "p1",
     monomers=["AMC"],
     n_of_monomers=[45],
-    toppar="cg_dihe.str",
+    toppar="testing_files/cg_dihe.str",
     charmm="charmm",
 )
 # chain.build_Monomers(verbose=True)
-chain.build_simpleChain(verbose=True, iter=0)  # , random=True)
-chain.relax_chain(500)
-chain.solvate(
+# chain.build_simpleChain(verbose=False, iter=0)  # , random=True)
+chain.relax_chain(5_000_000)
+chain.solvate_old(
     1,
     "BMW",
-    200_000,
+    20_000,
+    solvent_pdb="testing_files/bmw.pdb",
     verbose=True,
-    boxsize=2500,
-    salt=True,
+    boxsize=500,
+    salt=False,
     c="MG",
-    c_pdb="mg.pdb",
-    c_n=90,
+    c_pdb="testing_files/mg.pdb",
+    c_n=19,
     a="SO4",
-    a_pdb="so4.pdb",
-    a_n=90,
+    a_pdb="testing_files/so4.pdb",
+    a_n=19,
 )
 chain.equilibrate("p1_in_bmw.psf", "p1_bmw.pdb", nstep=50_000_000)
 chain.restart(

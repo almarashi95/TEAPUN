@@ -1,0 +1,14 @@
+tolerance 0.5
+sidemax 1000
+structure p1_relax.pdb
+number 1
+center
+fixed 250.0 250.0 250.0 0. 0. 0. 
+radius 2.0
+end structure
+structure testing_files/bmw.pdb
+number 20000
+inside box 0. 0. 0. 500 450.0 400.0
+radius 2.0
+end structure
+output p1_bmw.pdb

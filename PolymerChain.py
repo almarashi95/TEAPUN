@@ -43,7 +43,7 @@ class PolymerChain:
                 for j in i:
                     if j == "\n" or j.startswith("!"):
                         i.remove(j)
-            self.masses = residues[0]
+            self.masses = topo.mass(residues[0])
             residues_in_chain = []
             for i in self.monomers:
                 for k in residues:
@@ -52,6 +52,7 @@ class PolymerChain:
             bonds = []
             angles = []
             dihedrals = []
+            nonb = []
             section = None
             for line in t:
                 if line.startswith("END"):
@@ -74,6 +75,9 @@ class PolymerChain:
                 elif line.startswith("NONB"):
                     section = "NONB"
                     continue
+                elif line.startswith("NBFIX"):
+                    section = "NBFIX"
+                    continue
                 line = line.split("!")[0]
                 if section == "BOND":
                     bonds.append(line)
@@ -82,11 +86,12 @@ class PolymerChain:
                 if section == "DIHE":
                     dihedrals.append(line)
                 if section == "NONB":
-                    pass
+                    nonb.append(line)
         self.residues = []
         self.angles = []
         self.bonds = []
         self.dihedrals = []
+        self.nonb = []
         for i in angles:
             # print(i.split())
             self.angles.append(topo.Angle_type(*i.split()))
@@ -95,6 +100,9 @@ class PolymerChain:
         for i in dihedrals:
             # print(i)
             self.dihedrals.append(topo.Dihedral_type(*i.split()))
+        for i in nonb[1:]:
+            # print(i)
+            self.nonb.append(topo.Nonb(*i.split()))
         for k in residues_in_chain:
             # try:
             self.residues.append(topo.Residue(k))
@@ -103,7 +111,7 @@ class PolymerChain:
         #     quit()
         ##all residues in toppar submitted
         self._allresidues = []
-        for l in residues:
+        for l in residues[1:]:
             self._allresidues.append(topo.Residue(l))
 
     def build_Monomers(self, verbose=False):
@@ -306,7 +314,7 @@ class PolymerChain:
         with open(f"{self.id.lower()}_relax.rst", "w") as f:
             f.write(XmlSerializer.serialize(state))
 
-    def solvate_old(
+    def solvate_charmm(
         self,
         num_of_Polymers,
         solvent_res,
@@ -420,10 +428,7 @@ class PolymerChain:
             )
 
     def equilibrate(
-        self,
-        psf,
-        pdb,
-        nstep=2_000_000,
+        self, psf, pdb, nstep=2_000_000, useBMH=False, freeze_polymer=False
     ):
         print(f"EQUIlibrate Chain\nTEA_PUN powered by openMM")
         psf = CharmmPsfFile(psf)
@@ -449,14 +454,16 @@ class PolymerChain:
         integrator = NoseHooverIntegrator(
             300 * kelvin, 50 / picosecond, 0.0001 * picoseconds
         )
-        barostat = system.addForce(
-            MonteCarloBarostat(1 * atmospheres, 300 * kelvin, 10)
-        )
-
-        # system, epsilons, sigm = eliminate_LJ(psf)
-        # # system = eliminate_elec(psf)
-        # system = usemodBMH(self, psf, epsilons, sigm, NBfix=True)
-        system = freeze_polymer(psf, self)
+        # barostat = system.addForce(
+        #     MonteCarloBarostat(1 * atmospheres, 300 * kelvin, 10)
+        # )
+        if useBMH:
+            system, epsilons, sigm = eliminate_LJ(psf)
+            print(np.sum(epsilons))
+            # system = eliminate_elec(psf)
+            system = usemodBMH(self, psf, epsilons, sigm, NBfix=True)
+        if freeze_polymer:
+            system = freeze_polymer(psf, self)
         simulation = Simulation(psf.topology, system, integrator, platform, prop)
         simulation.context.setPositions(pdb.positions)
         try:
@@ -467,6 +474,7 @@ class PolymerChain:
             print("failed to Transform into octahedron")
         print("MINImizing ENERgy")
         simulation.minimizeEnergy(maxIterations=20_000_000)
+        print(simulation.context.getState(getEnergy=True).getPotentialEnergy())
         simulation.context.reinitialize(preserveState=True)
         simulation.context.setVelocitiesToTemperature(300 * kelvin)
         simulation.reporters.append(
@@ -486,12 +494,9 @@ class PolymerChain:
             )
         )
         simulation.reporters.append(DCDReporter(f"pre_comp.dcd", 10_000))
-        for t in [1, 2, 4, 4, 2, 1]:
-            print(t)
-            simulation.context.setParameter(system.getForce(barostat).Pressure(), t)
-            simulation.step(200_000)
-            simulation.minimizeEnergy(maxIterations=200_000_000)
-            # simulation.context.setVelocitiesToTemperature(300 * kelvin)
+        simulation.step(20_000_000)
+        simulation.minimizeEnergy(maxIterations=200_000_000)
+        # simulation.context.setVelocitiesToTemperature(300 * kelvin)
         print("\nINITial SYSTem ENERgy")
         print(simulation.context.getState(getEnergy=True).getPotentialEnergy())
         pdbfile.PDBFile.writeModel(
@@ -522,8 +527,10 @@ class PolymerChain:
             barostat = system.addForce(
                 MonteCarloBarostat(dt2p[ctr] * atmospheres, 300 * kelvin, 10)
             )
-            system, epsilons, sigm = eliminate_LJ(psf)
-            system = system = usemodBMH(self, psf, epsilons, sigm, NBfix=True)
+            if useBMH:
+                system, epsilons, sigm = eliminate_LJ(psf)
+
+                system = system = usemodBMH(self, psf, epsilons, sigm, NBfix=True)
             simulation = Simulation(psf.topology, system, integrator, platform, prop)
             with open(rst, "r") as f:
                 simulation.context.setState(XmlSerializer.deserialize(f.read()))

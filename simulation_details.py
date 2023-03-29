@@ -95,6 +95,6 @@ def set_octahedron(psf):
         Vec3(1 / 3, 2 * np.sqrt(2) / 3, 0),
         Vec3(-1 / 3, np.sqrt(2) / 3, np.sqrt(6) / 3),
     )
-    a = 1.01 * psf.boxLengths[0]
+    a = psf.boxLengths[0] * 1.001
     boxVectors = [a * v for v in vectors]
     return boxVectors

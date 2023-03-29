@@ -13,7 +13,7 @@ chain = PolymerChain(
 )
 # chain.build_Monomers(verbose=True)
 # chain.build_simpleChain(verbose=False, iter=0)  # , random=True)
-chain.relax_chain(5_000_000)
+#chain.relax_chain(5_000_000)
 chain.solvate_old(
     1,
     "BMW",

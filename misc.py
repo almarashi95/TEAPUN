@@ -1,6 +1,7 @@
 import random
 import os
 import numpy as np
+from openmm import Vec3
 
 
 def find_patch(m1, m2):
@@ -35,19 +36,18 @@ def gen_box(psf, crd, enforce_cubic=False, octahedron=False):
         print(f"Forced Cubic Box {a=}")
         psf.setBox(a, a, a)
     elif octahedron:
-        a = 1.5 * a
         print(f"Octahedral BoxDimensions: {a}")
-        psf.setBox(
-            a,
-            a,
-            a,
-        )
-        # vectors = (
-        #     openmm.Vec3(1, 0, 0),
-        #     openmm.Vec3(1 / 3, 2 * sqrt(2) / 3, 0),
-        #     openmm.Vec3(-1 / 3, sqrt(2) / 3, sqrt(6) / 3),
+        # psf.setBox(
+        #     a,
+        #     a,
+        #     a,
         # )
-        # psf.boxVectors = [(a) * v for v in vectors]
+        vectors = (
+            Vec3(1, 0, 0),
+            Vec3(1 / 3, 2 * np.sqrt(2) / 3, 0),
+            Vec3(-1 / 3, np.sqrt(2) / 3, np.sqrt(6) / 3),
+        )
+        psf.boxVectors = [(a) * v for v in vectors]
         # psf.setBox(a, a, a)
 
     else:
@@ -77,10 +77,10 @@ def pack_system(
     ###########################################################################################################################################################
     f = open("tmp_packmol.inp", "w")
     f.write(
-        f"tolerance 0.5\nsidemax {2*boxsize}\nstructure {polymerchainpdb}\nnumber {n}\ncenter\nfixed {boxsize/2} {boxsize/2} {boxsize/2} 0. 0. 0. \nradius 2.0\nend structure\n"
+        f"tolerance 2.0\ndiscale 1.5\nmaxit 5\nmovebadrandom\nsidemax {2*boxsize}\nstructure {polymerchainpdb}\nnumber {n}\ncenter\nfixed {boxsize/2} {boxsize/2} {boxsize/2} 0. 0. 0. \nradius 5.2\nend structure\n"
     )
     f.write(
-        f"structure {solventpdb}\nnumber {n_s}\ninside box 0. 0. 0. {boxsize*1} {boxsize*.9} {boxsize*.8}\nradius 2.0\n"
+        f"structure {solventpdb}\nnumber {n_s}\ninside box 0. 0. 0. {boxsize*1} {boxsize*.9} {boxsize*.8}\nradius 5.1\n"
     )
     f.write("end structure\n")
     if salt:
@@ -139,3 +139,100 @@ def randomwalk(steps, dist):
     except IndexError:
         print("Dead End")
         return randomwalk(steps, dist)
+
+
+def write_xml(PolymerChain, out_file="output.xml"):
+    import xml.etree.ElementTree as ET
+    from datetime import date
+    import xml.dom.minidom as md
+
+    # system = ET.Element(f"{PolymerChain.id}")
+    forcefield = ET.Element("ForceField")
+    info = ET.SubElement(forcefield, "Info")
+    DateGenerated = ET.SubElement(info, "DateGenerated")
+    DateGenerated.text = f"{date.today()}"
+    masses = ET.SubElement(forcefield, "AtomTypes")
+    t = []
+    for k in PolymerChain.masses:
+        k_element = ET.SubElement(masses, "Type")
+        k_element.set("class", str(k.type))
+        k_element.set("element", "C")
+        k_element.set("mass", f"{k.mass}")
+        k_element.set("name", f"{k.type}")
+    residues = ET.SubElement(forcefield, "Residues")
+    for resid in PolymerChain._allresidues:
+        residue = ET.SubElement(residues, "Residue", name=resid.name)
+        for atom in resid.atoms:
+            atm = ET.SubElement(
+                residue,
+                "Atom",
+                charge=atom.charge,
+                name=atom.name,
+                type=atom.type,
+            )
+        for bond in resid.bonds:
+            bnd = ET.SubElement(
+                residue,
+                "Bond",
+                atomName1=bond.atom1,
+                atomName2=bond.atom2,
+            )
+    BondTypes = ET.SubElement(forcefield, "HarmonicBondForce")
+    for bonds in PolymerChain.bonds:
+        bnd_types = ET.SubElement(
+            BondTypes,
+            "Bond",
+            k=bonds.k,
+            length=f"{bonds.r_0}",
+            type1=bonds.type1,
+            type2=bonds.type2,
+        )
+    AngleTypes = ET.SubElement(forcefield, "HarmonicAngleForce")
+    for angles in PolymerChain.angles:
+        angl_types = ET.SubElement(
+            AngleTypes,
+            "Angle",
+            angle=angles.th_0,
+            k=angles.k,
+            type1=angles.type1,
+            type2=angles.type2,
+            type3=angles.type3,
+        )
+    DihedralTypes = ET.SubElement(forcefield, "PeriodicTorsionForce")
+    for dihes in PolymerChain.dihedrals:
+        dihe_types = ET.SubElement(
+            AngleTypes,
+            "Proper",
+            k=dihes.k,
+            periodicity=dihes.multiplicty,
+            phase1=dihes.th_0,
+            type1=dihes.type1,
+            type2=dihes.type2,
+            type3=dihes.type3,
+            type4=dihes.type4,
+        )
+    NonBonded = ET.SubElement(
+        forcefield,
+        "NonbondedForce",
+        coulomb14scale="1.0",
+        lj14scale="1.0",
+        useDispersionCorrection="False",
+    )
+    use_charge = ET.SubElement(NonBonded, "UseAttributeFromResidue", name="charge")
+    for atm in PolymerChain.nonb:
+        atm_types = ET.SubElement(
+            NonBonded, "Atom", epsilon="0.0", sigma="1.0", type=atm.type
+        )
+    LJForce = ET.SubElement(
+        forcefield, "LennardJonesFore", lj14scale="1.0", useDispersionCorrection="False"
+    )
+    for at in PolymerChain.nonb:
+        at_types = ET.SubElement(
+            LJForce, "Atom", epsilon=at.eps, sigma=f"{at.rm}", type=at.type
+        )
+    tree = ET.ElementTree(forcefield)
+    xml_str = ET.tostring(forcefield)
+    xml_str_pretty = md.parseString(xml_str).toprettyxml(indent="\t")
+    # tree.write(f"test.xml", encoding="UTF-8", xml_declaration=True, pretty_print=True)
+    with open(out_file, "w") as f:
+        f.write(xml_str_pretty)

@@ -76,11 +76,16 @@ def pack_system(
     # write PACKMOL input#######################################################################################################################################
     ###########################################################################################################################################################
     f = open("tmp_packmol.inp", "w")
+    if n == 1:
+        f.write(
+            f"tolerance 1.0\nmovebadrandom\nsidemax {2*boxsize}\nstructure {polymerchainpdb}\nnumber {n}\ncenter\nfixed {boxsize/2} {boxsize/2} {boxsize/2} 0. 0. 0. \nradius 5.0\nend structure\n"
+        )
+    else:
+        f.write(
+            f"tolerance 1.0\nmovebadrandom\nsidemax {2*boxsize}\nstructure {polymerchainpdb}\nnumber {n}\ninside box {boxsize/3} {boxsize/3} {boxsize/3} {2*boxsize/3} {(2*boxsize/3)*.9}  {(2*boxsize/3)*.8} \nradius 5.0\nend structure\n"
+        )
     f.write(
-        f"tolerance 2.0\ndiscale 1.5\nmaxit 5\nmovebadrandom\nsidemax {2*boxsize}\nstructure {polymerchainpdb}\nnumber {n}\ncenter\nfixed {boxsize/2} {boxsize/2} {boxsize/2} 0. 0. 0. \nradius 5.2\nend structure\n"
-    )
-    f.write(
-        f"structure {solventpdb}\nnumber {n_s}\ninside box 0. 0. 0. {boxsize*1} {boxsize*.9} {boxsize*.8}\nradius 5.1\n"
+        f"structure {solventpdb}\nnumber {n_s}\ninside box 0. 0. 0. {boxsize*1} {boxsize*.9} {boxsize*.8}\nradius 7.0\n"
     )
     f.write("end structure\n")
     if salt:
@@ -224,7 +229,10 @@ def write_xml(PolymerChain, out_file="output.xml"):
             NonBonded, "Atom", epsilon="0.0", sigma="1.0", type=atm.type
         )
     LJForce = ET.SubElement(
-        forcefield, "LennardJonesFore", lj14scale="1.0", useDispersionCorrection="False"
+        forcefield,
+        "LennardJonesForce",
+        lj14scale="1.0",
+        useDispersionCorrection="False",
     )
     for at in PolymerChain.nonb:
         at_types = ET.SubElement(

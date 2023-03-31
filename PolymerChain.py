@@ -1,13 +1,13 @@
 import numpy as np
 from openmm.app import *
 from openmm import *
-from openmm.unit import *
+import openmm.unit as unit
 from sys import stdout
-import random
+
 import os
 import topo
-from misc import *
-from simulation_details import *
+import misc
+import simulation_details as sd
 
 
 class PolymerChain:
@@ -191,7 +191,7 @@ class PolymerChain:
         ####################################################
         ##Random Walk
         ####################################################
-        coords = randomwalk(self.chain_length, 4)
+        coords = misc.randomwalk(self.chain_length, 4)
 
         if random:
             import random
@@ -217,7 +217,7 @@ class PolymerChain:
             )  # add function to find real bondlenght
             if ctr > 1 and ctr <= self.chain_length:
                 f.write(
-                    f"patch {find_patch(prev_seg,n)} {prev_seg} {prev} {n} {ids[num]}\n"
+                    f"patch {misc.find_patch(prev_seg,n)} {prev_seg} {prev} {n} {ids[num]}\n"
                 )
             prev = ids[num]
             ctr += 1
@@ -245,7 +245,7 @@ class PolymerChain:
             os.system("rm tmp.inp")
             os.system("rm build.out")
 
-    def relax_chain(self, nstep=150_000):
+    def relax_chain(self, nstep=150_000, useBMH=False):
         #####################################################################################################################################################
         # Compressing the chain in a Force Cage and relaxing afterwards to get usable starting structures for MD
         #####################################################################################################################################################
@@ -268,13 +268,13 @@ class PolymerChain:
         prop = dict(CudaPrecision="single") if platform.getName() == "CUDA" else dict()
         print("BUILDing SYSTem")
         #######################################################################################
-        psf = gen_box(psf, crd, enforce_cubic=True)
+        psf = misc.gen_box(psf, crd, enforce_cubic=True)
         ########################################################################################################################################################
         system = psf.createSystem(
             toppar,
             nonbondedMethod=PME,
             ewaldErrorTolerance=0.005,
-            nonbondedCutoff=1.5 * nanometer,
+            nonbondedCutoff=1.5 * unit.unit.nanometer,
             solventDielectric=60,
             constraints=None,
         )
@@ -283,7 +283,7 @@ class PolymerChain:
         # Initialize Simulation
         ################################################################################################
         integrator = NoseHooverIntegrator(
-            300 * kelvin, 50 / picosecond, 0.0001 * picoseconds
+            300 * unit.unit.kelvin, 50 / unit.picosecond, 0.0001 * unit.picoseconds
         )
         # system, epsilons, sigm = eliminate_LJ(psf)
         # system = usemodBMH(self, psf, epsilons, sigm, NBfix=False)
@@ -294,8 +294,13 @@ class PolymerChain:
                 stdout, 1_000, step=True, totalEnergy=True, separator="\t"
             )
         )
-        system.addForce(MonteCarloBarostat(1 * atmospheres, 300 * kelvin, 10))
-        simulation.context.setVelocitiesToTemperature(300 * kelvin)
+        if useBMH:
+            system, epsilons, sigm = sd.eliminate_LJ(psf)
+            # print(np.sum(epsilons))
+            # system = eliminate_elec(psf)
+            system = sd.usemodBMH(self, psf, epsilons, sigm, NBfix=True)
+        # system.addForce(MonteCarloBarostat(1 * unit.atmospheres, 300 * unit.kelvin, 10))
+        simulation.context.setVelocitiesToTemperature(300 * unit.kelvin)
         ###############################################################################################
         # Compress System
         ###############################################################################################
@@ -412,7 +417,7 @@ class PolymerChain:
             if solvent_pdb == "default":
                 solvent_pdb = f"{solvent_res.lower()}.pdb"
 
-            pack_system(
+            misc.pack_system(
                 pdb_file,
                 num_of_Polymers,
                 solvent_res,
@@ -428,7 +433,16 @@ class PolymerChain:
             )
 
     def equilibrate(
-        self, psf, pdb, nstep=2_000_000, useBMH=False, freeze_polymer=False
+        self,
+        psf,
+        pdb,
+        nstep=2_000_000,
+        iter=50,
+        dt=0.0005,
+        p=10,
+        useBMH=False,
+        freeze=False,
+        multiplicator=1.1,
     ):
         print(f"EQUIlibrate Chain\nTEA_PUN powered by openMM")
         psf = CharmmPsfFile(psf)
@@ -444,39 +458,37 @@ class PolymerChain:
                 break
         print(f"Using {platform.getName()}")
         prop = dict(CudaPrecision="single") if platform.getName() == "CUDA" else dict()
-        psf = gen_box(psf, pdb, enforce_cubic=True)
+        psf = misc.gen_box(psf, pdb, enforce_cubic=True)
         system = psf.createSystem(
             params,
             nonbondedMethod=CutoffPeriodic,
-            nonbondedCutoff=1.5 * nanometer,
+            nonbondedCutoff=1.5 * unit.nanometer,
             constraints=None,
         )
         integrator = NoseHooverIntegrator(
-            300 * kelvin, 50 / picosecond, 0.0001 * picoseconds
+            100 * unit.kelvin, 50 / unit.picosecond, 0.0001 * unit.picoseconds
         )
-        # barostat = system.addForce(
-        #     MonteCarloBarostat(1 * atmospheres, 300 * kelvin, 10)
-        # )
         if useBMH:
-            system, epsilons, sigm = eliminate_LJ(psf)
-            print(np.sum(epsilons))
-            # system = eliminate_elec(psf)
-            system = usemodBMH(self, psf, epsilons, sigm, NBfix=True)
-        if freeze_polymer:
-            system = freeze_polymer(psf, self)
+            system, epsilons, sigm = sd.eliminate_LJ(psf)
+            # print(np.sum(epsilons))
+            system = sd.usemodBMH(
+                PolymerChain=self, psf=psf, epsilons=epsilons, sigm=sigm, NBfix=True
+            )
+        if freeze:
+            system = sd.freeze_polymer(psf, self)
         simulation = Simulation(psf.topology, system, integrator, platform, prop)
         simulation.context.setPositions(pdb.positions)
         try:
-            boxVectors = set_octahedron(psf)
+            boxVectors = sd.set_octahedron(psf, multiplicator)
             print(f"setting {boxVectors}")
             simulation.context.setPeriodicBoxVectors(*boxVectors)
         except:
             print("failed to Transform into octahedron")
         print("MINImizing ENERgy")
-        simulation.minimizeEnergy(maxIterations=20_000_000)
+        simulation.minimizeEnergy(maxIterations=200_000_000)
         print(simulation.context.getState(getEnergy=True).getPotentialEnergy())
         simulation.context.reinitialize(preserveState=True)
-        simulation.context.setVelocitiesToTemperature(300 * kelvin)
+        simulation.context.setVelocitiesToTemperature(300 * unit.kelvin)
         simulation.reporters.append(
             StateDataReporter(
                 stdout,
@@ -494,9 +506,9 @@ class PolymerChain:
             )
         )
         simulation.reporters.append(DCDReporter(f"pre_comp.dcd", 10_000))
-        simulation.step(20_000_000)
+        simulation.step(10_000)
         simulation.minimizeEnergy(maxIterations=200_000_000)
-        # simulation.context.setVelocitiesToTemperature(300 * kelvin)
+        simulation.step(200_000)
         print("\nINITial SYSTem ENERgy")
         print(simulation.context.getState(getEnergy=True).getPotentialEnergy())
         pdbfile.PDBFile.writeModel(
@@ -506,9 +518,8 @@ class PolymerChain:
         )
         ctr = 0
         boxv = simulation.context.getState().getPeriodicBoxVectors()
-        psf.boxVectors = boxv
-        for dt in [0.0001, 0.0001, 0.0002, 0.0003, 0.0005, 0.001, 0.005]:
-            dt2p = [1, 1, 1, 1, 1, 1, 1]
+        # psf.boxVectors = boxv
+        for i in range(iter):
             print(f"TimeStep set to {dt}ps")
             state = simulation.context.getState(getPositions=True, getVelocities=True)
             rst = f"{self.id.lower()}_temp.rst"
@@ -517,27 +528,27 @@ class PolymerChain:
             system = psf.createSystem(
                 params,
                 nonbondedMethod=CutoffPeriodic,
-                nonbondedCutoff=1.3 * nanometer,
+                nonbondedCutoff=1.3 * unit.nanometer,
                 rigidWater=False,
                 solventDielectric=60,
             )
             integrator = NoseHooverIntegrator(
-                300 * kelvin, 50 / picosecond, dt * picoseconds
+                100 * unit.kelvin, 50 / unit.picosecond, dt * unit.picoseconds
             )
             barostat = system.addForce(
-                MonteCarloBarostat(dt2p[ctr] * atmospheres, 300 * kelvin, 10)
+                MonteCarloBarostat(p * unit.atmospheres, 100 * unit.kelvin, 10)
             )
             if useBMH:
-                system, epsilons, sigm = eliminate_LJ(psf)
+                system, epsilons, sigm = sd.eliminate_LJ(psf)
 
-                system = system = usemodBMH(self, psf, epsilons, sigm, NBfix=True)
+                system = sd.usemodBMH(self, psf, epsilons, sigm, NBfix=True)
             simulation = Simulation(psf.topology, system, integrator, platform, prop)
             with open(rst, "r") as f:
                 simulation.context.setState(XmlSerializer.deserialize(f.read()))
             simulation.reporters.append(
                 StateDataReporter(
                     stdout,
-                    15_000,
+                    10_000,
                     step=True,
                     time=True,
                     potentialEnergy=True,
@@ -556,7 +567,7 @@ class PolymerChain:
                     print(
                         f"setting {simulation.context.getState().getPeriodicBoxVectors()}"
                     )
-                    simulation.minimizeEnergy(maxIterations=20_000_000)
+                    simulation.minimizeEnergy(maxIterations=2_000_000)
                 except:
                     print("failed\nusing init box")
             if ctr > 0:
@@ -565,25 +576,56 @@ class PolymerChain:
 
             simulation.reporters.append(
                 DCDReporter(
-                    f"{self.id.lower()}_equilibration_{dt}_{dt2p[ctr]}_{ctr}.dcd",
+                    f"{self.id.lower()}_equilibration_{dt}_{p}_{ctr}.dcd",
                     20_000,
                 )
             )
-            print("STARting DYNAmics")
-            simulation.step(nstep // 8)
+            simulation.step(1000)
+            system.removeForce(barostat)
+            simulation.context.reinitialize(preserveState=True)
+            simulation.step(500_000)
             boxv = simulation.context.getState().getPeriodicBoxVectors()
             state = simulation.context.getState(getPositions=True, getVelocities=True)
             with open(rst, "w") as f:
                 f.write(XmlSerializer.serialize(state))
             ctr += 1
+        system = psf.createSystem(
+            params,
+            nonbondedMethod=CutoffPeriodic,
+            nonbondedCutoff=1.5 * unit.nanometer,
+            constraints=None,
+        )
+        integrator = NoseHooverIntegrator(
+            300 * unit.kelvin, 50 / unit.picosecond, 0.004 * unit.picoseconds
+        )
+        if useBMH:
+            system, epsilons, sigm = sd.eliminate_LJ(psf)
+            print(np.sum(epsilons))
+            # system = eliminate_elec(psf)
+            system = sd.usemodBMH(self, psf, epsilons, sigm, NBfix=True)
+        simulation = Simulation(psf.topology, system, integrator, platform, prop)
+        with open(rst, "r") as f:
+            simulation.context.setState(XmlSerializer.deserialize(f.read()))
+        simulation.step(nstep)
         self.boxv = simulation.context.getState().getPeriodicBoxVectors()
         state = simulation.context.getState(getPositions=True, getVelocities=True)
         with open(f"{self.id.lower()}.rst", "w") as f:
             f.write(XmlSerializer.serialize(state))
 
-    def restart(self, psf, rst, nstep=2_000_000, dt2p=[1, 1, 1, 1, 1, 1], boxl="None"):
+    def restart(
+        self,
+        psf,
+        rst,
+        nstep=2_000_000,
+        dt=0.0005,
+        p=10,
+        iter=50,
+        useBMH=False,
+        freeze=False,
+    ):
+        print(f"EQUIlibrate Chain\nTEA_PUN powered by openMM")
         psf = CharmmPsfFile(psf)
-        # psf = gen_box(psf, PDBFile("init.pdb"))
+        pdb = PDBFile("init.pdb")
         params = CharmmParameterSet(self.toppar)
         DEFAULT_PLATFORMS = "CUDA", "OpenCL", "CPU"
         enabled_platforms = [
@@ -593,74 +635,338 @@ class PolymerChain:
             if platform in enabled_platforms:
                 platform = Platform.getPlatformByName(platform)
                 break
+        print(f"Using {platform.getName()}")
         prop = dict(CudaPrecision="single") if platform.getName() == "CUDA" else dict()
+        psf = misc.gen_box(psf, pdb, enforce_cubic=True)
+        system = psf.createSystem(
+            params,
+            nonbondedMethod=CutoffPeriodic,
+            nonbondedCutoff=1.5 * unit.nanometer,
+            constraints=None,
+        )
+        integrator = NoseHooverIntegrator(
+            100 * unit.kelvin, 50 / unit.picosecond, 0.0001 * unit.picoseconds
+        )
+
+        if useBMH:
+            system, epsilons, sigm = sd.eliminate_LJ(psf)
+
+            system = sd.usemodBMH(self, psf, epsilons, sigm, NBfix=True)
+        if freeze:
+            system = sd.freeze_polymer(psf, self)
+
+        simulation = Simulation(psf.topology, system, integrator, platform, prop)
+
+        with open(rst, "r") as f:
+            simulation.context.setState(XmlSerializer.deserialize(f.read()))
+
+        print("MINImizing ENERgy")
+        simulation.minimizeEnergy(maxIterations=200_000_000)
+        print(simulation.context.getState(getEnergy=True).getPotentialEnergy())
+        simulation.context.reinitialize(preserveState=True)
+        simulation.context.setVelocitiesToTemperature(300 * unit.kelvin)
+        simulation.reporters.append(
+            StateDataReporter(
+                stdout,
+                2000,
+                step=True,
+                time=True,
+                potentialEnergy=True,
+                kineticEnergy=True,
+                totalEnergy=True,
+                temperature=True,
+                volume=True,
+                density=True,
+                speed=True,
+                separator="\t",
+            )
+        )
+        simulation.reporters.append(DCDReporter(f"pre_comp.dcd", 10_000))
+        simulation.step(10_000)
+        simulation.minimizeEnergy(maxIterations=200_000_000)
+        simulation.step(200_000)
+        # simulation.context.setVelocitiesToTemperature(300 * unit.kelvin)
+        print("\nINITial SYSTem ENERgy")
+        print(simulation.context.getState(getEnergy=True).getPotentialEnergy())
+        pdbfile.PDBFile.writeModel(
+            simulation.topology,
+            simulation.context.getState(getPositions=True).getPositions(),
+            file=open("init.pdb", "w"),
+        )
         ctr = 0
-        psf = gen_box(psf, PDBFile("init.pdb"), octahedron=True)
-        for dt in [0.0001, 0.0001, 0.0002, 0.0005, 0.0005, 0.001]:
+        boxv = simulation.context.getState().getPeriodicBoxVectors()
+        # psf.boxVectors = boxv
+        for i in range(iter):
             print(f"TimeStep set to {dt}ps")
+            state = simulation.context.getState(getPositions=True, getVelocities=True)
             rst = f"{self.id.lower()}_temp.rst"
+            with open(rst, "w") as f:
+                f.write(XmlSerializer.serialize(state))
             system = psf.createSystem(
                 params,
                 nonbondedMethod=CutoffPeriodic,
-                nonbondedCutoff=1.5 * nanometer,
+                nonbondedCutoff=1.3 * unit.nanometer,
                 rigidWater=False,
-                soluteDielectric=80,
-                solventDielectric=80,
+                solventDielectric=60,
             )
             integrator = NoseHooverIntegrator(
-                300 * kelvin, 50 / picosecond, dt * picoseconds
+                100 * unit.kelvin, 50 / unit.picosecond, dt * unit.picoseconds
             )
             barostat = system.addForce(
-                MonteCarloBarostat(dt2p[ctr] * atmospheres, 300 * kelvin, 10)
+                MonteCarloBarostat(p * unit.atmospheres, 100 * unit.kelvin, 10)
             )
+            if useBMH:
+                system, epsilons, sigm = sd.eliminate_LJ(psf)
+
+                system = sd.usemodBMH(self, psf, epsilons, sigm, NBfix=True)
+
             simulation = Simulation(psf.topology, system, integrator, platform, prop)
             with open(rst, "r") as f:
                 simulation.context.setState(XmlSerializer.deserialize(f.read()))
-                if ctr == 0:
-                    simulation.context.setPeriodicBoxVectors(
-                        *(simulation.context.getState().getPeriodicBoxVectors() * 1.1)
-                    )
-                    simulation.minimizeEnergy(maxIterations=20_000_000)
-                    integrator.setStepSize(0.000005)
-                    simulation.context.reinitialize(preserveState=True)
-                    simulation.step(10_000)
-                    integrator.setStepSize(dt)
-                    simulation.context.reinitialize(preserveState=True)
-            if ctr > 0:
-                simulation.context.setPeriodicBoxVectors(*boxv)
             simulation.reporters.append(
                 StateDataReporter(
                     stdout,
-                    15_000,
+                    10_000,
                     step=True,
                     time=True,
                     potentialEnergy=True,
                     kineticEnergy=True,
+                    totalEnergy=True,
                     temperature=True,
                     volume=True,
+                    density=True,
                     speed=True,
                     separator="\t",
                 )
             )
+            if ctr == 0:
+                try:
+                    simulation.context.setPeriodicBoxVectors(*boxv)
+                    print(
+                        f"setting {simulation.context.getState().getPeriodicBoxVectors()}"
+                    )
+                    simulation.minimizeEnergy(maxIterations=2_000_000)
+                except:
+                    print("failed\nusing init box")
+            if ctr > 0:
+                print(f"Using Dimensions: {boxv}")
+                simulation.context.setPeriodicBoxVectors(*boxv)
+
             simulation.reporters.append(
                 DCDReporter(
-                    f"{self.id.lower()}_equilibration_{dt}_{dt2p[ctr]}_{ctr}_rst.dcd",
+                    f"{self.id.lower()}_equilibration_{dt}_{p}_{ctr}_rst.dcd",
                     20_000,
                 )
             )
-            # simulation.reporters.append(
-            #     EnergyReporter(
-            #         f"{self.id.lower()}_equilibration_energy_{dt}_{dt2p[ctr]}_{ctr}_rst.out",
-            #         20_000,
-            #     )
-            # )
-            print("STARting DYNAmics")
-            simulation.step(nstep)
+            # print("STARting DYNAmics")
+            simulation.step(1000)
+            system.removeForce(barostat)
+            simulation.context.reinitialize(preserveState=True)
+            simulation.step(500_000)
+            boxv = simulation.context.getState().getPeriodicBoxVectors()
             state = simulation.context.getState(getPositions=True, getVelocities=True)
             with open(rst, "w") as f:
                 f.write(XmlSerializer.serialize(state))
             ctr += 1
+        system = psf.createSystem(
+            params,
+            nonbondedMethod=CutoffPeriodic,
+            nonbondedCutoff=1.5 * unit.nanometer,
+            constraints=None,
+        )
+        integrator = NoseHooverIntegrator(
+            300 * unit.kelvin, 50 / unit.picosecond, 0.004 * unit.picoseconds
+        )
+        print(useBMH)
+        if useBMH:
+            system, epsilons, sigm = sd.eliminate_LJ(psf)
+            system = sd.usemodBMH(self, psf, epsilons, sigm, NBfix=True)
+        simulation = Simulation(psf.topology, system, integrator, platform, prop)
+        state = simulation.context.getState(getPositions=True, getVelocities=True)
+        simulation.step(nstep)
+        self.boxv = simulation.context.getState().getPeriodicBoxVectors()
+        state = simulation.context.getState(getPositions=True, getVelocities=True)
+        with open(f"{self.id.lower()}.rst", "w") as f:
+            f.write(XmlSerializer.serialize(state))
+
+    def rest(
+        self,
+        psf,
+        rst,
+        nstep=2_000_000,
+        dt=0.0005,
+        p=10,
+        iter=50,
+        useBMH=False,
+        freeze=False,
+    ):
+        print(f"EQUIlibrate Chain\nTEA_PUN powered by openMM")
+        psf = CharmmPsfFile(psf)
+        pdb = PDBFile("init.pdb")
+        params = CharmmParameterSet(self.toppar)
+        DEFAULT_PLATFORMS = "CUDA", "OpenCL", "CPU"
+        enabled_platforms = [
+            Platform.getPlatform(i).getName() for i in range(Platform.getNumPlatforms())
+        ]
+        for platform in DEFAULT_PLATFORMS:
+            if platform in enabled_platforms:
+                platform = Platform.getPlatformByName(platform)
+                break
+        print(f"Using {platform.getName()}")
+        prop = dict(CudaPrecision="single") if platform.getName() == "CUDA" else dict()
+        psf = misc.gen_box(psf, pdb, enforce_cubic=True)
+        system = psf.createSystem(
+            params,
+            nonbondedMethod=CutoffPeriodic,
+            nonbondedCutoff=1.5 * unit.nanometer,
+            constraints=None,
+        )
+        integrator = NoseHooverIntegrator(
+            100 * unit.kelvin, 50 / unit.picosecond, 0.0001 * unit.picoseconds
+        )
+        # barostat = system.addForce(
+        #     MonteCarloBarostat(1 * unit.atmospheres, 300 * unit.kelvin, 10)
+        # )
+        if useBMH:
+            system, epsilons, sigm = sd.eliminate_LJ(psf)
+            # system = eliminate_elec(psf)
+            system = sd.usemodBMH(self, psf, epsilons, sigm, NBfix=True)
+        if freeze:
+            system = sd.freeze_polymer(psf, self)
+
+        simulation = Simulation(psf.topology, system, integrator, platform, prop)
+
+        with open(rst, "r") as f:
+            simulation.context.setState(XmlSerializer.deserialize(f.read()))
+            simulation.minimizeEnergy(maxIterations=20_000_000)
+            integrator.setStepSize(0.000005)
+            simulation.context.reinitialize(preserveState=True)
+            simulation.step(10_000)
+            integrator.setStepSize(0.0001)
+            simulation.context.reinitialize(preserveState=True)
+        print("MINImizing ENERgy")
+        simulation.minimizeEnergy(maxIterations=200_000_000)
+        print(simulation.context.getState(getEnergy=True).getPotentialEnergy())
+        simulation.context.reinitialize(preserveState=True)
+        simulation.context.setVelocitiesToTemperature(300 * unit.kelvin)
+        simulation.reporters.append(
+            StateDataReporter(
+                stdout,
+                2000,
+                step=True,
+                time=True,
+                potentialEnergy=True,
+                kineticEnergy=True,
+                totalEnergy=True,
+                temperature=True,
+                volume=True,
+                density=True,
+                speed=True,
+                separator="\t",
+            )
+        )
+        simulation.reporters.append(DCDReporter(f"pre_comp.dcd", 10_000))
+        simulation.step(10_000)
+        simulation.minimizeEnergy(maxIterations=200_000_000)
+        simulation.step(200_000)
+        # simulation.context.setVelocitiesToTemperature(300 * unit.kelvin)
+        print("\nINITial SYSTem ENERgy")
+        print(simulation.context.getState(getEnergy=True).getPotentialEnergy())
+        pdbfile.PDBFile.writeModel(
+            simulation.topology,
+            simulation.context.getState(getPositions=True).getPositions(),
+            file=open("init.pdb", "w"),
+        )
+        ctr = 0
+        boxv = simulation.context.getState().getPeriodicBoxVectors()
+        # psf.boxVectors = boxv
+        for i in range(iter):
+            state = simulation.context.getState(getPositions=True, getVelocities=True)
+            rst = f"{self.id.lower()}_temp.rst"
+            with open(rst, "w") as f:
+                f.write(XmlSerializer.serialize(state))
+            system = psf.createSystem(
+                params,
+                nonbondedMethod=CutoffPeriodic,
+                nonbondedCutoff=1.3 * unit.nanometer,
+                rigidWater=False,
+                solventDielectric=60,
+            )
+            integrator = NoseHooverIntegrator(
+                100 * unit.kelvin, 50 / unit.picosecond, dt * unit.picoseconds
+            )
+            barostat = system.addForce(
+                MonteCarloBarostat(p * unit.atmospheres, 100 * unit.kelvin, 10)
+            )
+            if useBMH:
+                system, epsilons, sigm = sd.eliminate_LJ(psf)
+
+                system = sd.usemodBMH(self, psf, epsilons, sigm, NBfix=True)
+            simulation = Simulation(psf.topology, system, integrator, platform, prop)
+            with open(rst, "r") as f:
+                simulation.context.setState(XmlSerializer.deserialize(f.read()))
+            simulation.reporters.append(
+                StateDataReporter(
+                    stdout,
+                    10_000,
+                    step=True,
+                    time=True,
+                    potentialEnergy=True,
+                    kineticEnergy=True,
+                    totalEnergy=True,
+                    temperature=True,
+                    volume=True,
+                    density=True,
+                    speed=True,
+                    separator="\t",
+                )
+            )
+            if ctr == 0:
+                try:
+                    simulation.context.setPeriodicBoxVectors(*boxv)
+                    print(
+                        f"setting {simulation.context.getState().getPeriodicBoxVectors()}"
+                    )
+                    simulation.minimizeEnergy(maxIterations=2_000_000)
+                except:
+                    print("failed\nusing init box")
+            if ctr > 0:
+                print(f"Using Dimensions: {boxv}")
+                simulation.context.setPeriodicBoxVectors(*boxv)
+
+            simulation.reporters.append(
+                DCDReporter(
+                    f"{self.id.lower()}_equilibration_{dt}_{p}_{ctr}_rst.dcd",
+                    20_000,
+                )
+            )
+            # print("STARting DYNAmics")
+            simulation.step(1000)
+            system.removeForce(barostat)
+            simulation.context.reinitialize(preserveState=True)
+            simulation.step(500_000)
             boxv = simulation.context.getState().getPeriodicBoxVectors()
+            state = simulation.context.getState(getPositions=True, getVelocities=True)
+            with open(rst, "w") as f:
+                f.write(XmlSerializer.serialize(state))
+            ctr += 1
+        system = psf.createSystem(
+            params,
+            nonbondedMethod=CutoffPeriodic,
+            nonbondedCutoff=1.5 * unit.nanometer,
+            constraints=None,
+        )
+        integrator = NoseHooverIntegrator(
+            300 * unit.kelvin, 50 / unit.picosecond, 0.004 * unit.picoseconds
+        )
+        if useBMH:
+            system, epsilons, sigm = sd.eliminate_LJ(psf)
+            # print(np.sum(epsilons))
+            # system = eliminate_elec(psf)
+            system = sd.usemodBMH(self, psf, epsilons, sigm, NBfix=True)
+
+        simulation.step(nstep)
+        self.boxv = simulation.context.getState().getPeriodicBoxVectors()
         state = simulation.context.getState(getPositions=True, getVelocities=True)
         with open(f"{self.id.lower()}.rst", "w") as f:
             f.write(XmlSerializer.serialize(state))

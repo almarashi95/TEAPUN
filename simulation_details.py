@@ -8,6 +8,7 @@ def freeze_polymer(psf, PolymerChain):
     system = psf.system
     for i in psf.topology.chains():
         if i.id.startswith(PolymerChain.id.upper()):
+            print(i.id)
             for j in i.atoms():
                 system.setParticleMass(j.index, 0.0)
     return system
@@ -69,14 +70,15 @@ def usemodBMH(PolymerChain, psf, epsilons, sigm, NBfix=False, a=7.953, f_param=5
     energy = "((scale*eps)/((1-(f/a))-((6-f)/12)))"
     energy += "*((((6-f)/12)*((rm/r)^12))-((rm/r)^6)"
     energy += "+((f/a)*exp(a*(1-(r/rm)))))"
-    energy += ";scale=select(group1+group2,1,1.2);"
-    energy += "eps=sqrt(eps1*eps2);rm=0.5*(rm1+rm2)"
+    energy += ";scale=select(group1+group2,1,1.2);"  # sclaling for solvent interaction
+    energy += "eps=sqrt(eps1*eps2);rm=0.5*(rm1+rm2)"  # Lorentz-Berthelot rules
     nb_force = CustomNonbondedForce(energy)
     nb_force.addGlobalParameter("a", a)
     nb_force.addGlobalParameter("f", f_param)
     nb_force.addPerParticleParameter("eps")
     nb_force.addPerParticleParameter("rm")
     nb_force.addPerParticleParameter("group")
+    # print(sigm)
     for i in range(j.getNumParticles()):
         nb_force.addParticle([epsilons[i], sigm[i], group[i]])
     nb_force.setNonbondedMethod(CustomNonbondedForce.CutoffPeriodic)
@@ -89,12 +91,12 @@ def usemodBMH(PolymerChain, psf, epsilons, sigm, NBfix=False, a=7.953, f_param=5
     return system
 
 
-def set_octahedron(psf):
+def set_octahedron(psf, multiplicator):
     vectors = (
         Vec3(1, 0, 0),
         Vec3(1 / 3, 2 * np.sqrt(2) / 3, 0),
         Vec3(-1 / 3, np.sqrt(2) / 3, np.sqrt(6) / 3),
     )
-    a = psf.boxLengths[0] * 1.001
+    a = psf.boxLengths[0] * multiplicator
     boxVectors = [a * v for v in vectors]
     return boxVectors

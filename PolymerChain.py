@@ -3,7 +3,7 @@ from openmm.app import *
 from openmm import *
 import openmm.unit as unit
 from sys import stdout
-
+from itertools import product
 import os
 import topo
 import misc
@@ -274,7 +274,7 @@ class PolymerChain:
             toppar,
             nonbondedMethod=PME,
             ewaldErrorTolerance=0.005,
-            nonbondedCutoff=1.5 * unit.unit.nanometer,
+            nonbondedCutoff=1.5 * unit.nanometer,
             solventDielectric=60,
             constraints=None,
         )
@@ -283,7 +283,7 @@ class PolymerChain:
         # Initialize Simulation
         ################################################################################################
         integrator = NoseHooverIntegrator(
-            300 * unit.unit.kelvin, 50 / unit.picosecond, 0.0001 * unit.picoseconds
+            300 * unit.kelvin, 50 / unit.picosecond, 0.0001 * unit.picoseconds
         )
         # system, epsilons, sigm = eliminate_LJ(psf)
         # system = usemodBMH(self, psf, epsilons, sigm, NBfix=False)
@@ -324,7 +324,8 @@ class PolymerChain:
         num_of_Polymers,
         solvent_res,
         solvent_num,
-        pack=True,
+        pack=False,
+        build=True,
         verbose=False,
         pdb_file="default",
         solvent_pdb="default",
@@ -350,6 +351,7 @@ class PolymerChain:
             try:
                 if solvent_res == i.name:
                     print("Solvent found in toppar")
+                    atoms = i.atoms
                     found = True
                     break
             except AttributeError:
@@ -371,7 +373,13 @@ class PolymerChain:
                         break
                 except AttributeError:
                     pass
-
+        x = np.linspace(0, int(boxsize), boxsize // 6)
+        y = np.linspace(0, int(boxsize * 0.8), int(boxsize * 0.8 // 6))
+        z = np.linspace(0, int(boxsize * 0.9), int(boxsize * 0.9 // 6))
+        coords = product(x, y, z)
+        if solvent_num == "auto":
+            solvent_num = len(list(coords))
+            coords = product(x, y, z)
         if not found:
             print(f"ERRor something not in toppar!")
             return
@@ -380,17 +388,38 @@ class PolymerChain:
         print("GENErating PSF\nTEA_PUN powered by CHARMM\n")
         #######################################################################################################
         f = open("tmp.inp", "w")
-        f.write(f"dimension chsize 4500000\nioformat extended\nstream {self.toppar}\n")
+        f.write(f"dimension chsize 50000000\nioformat extended\nstream {self.toppar}\n")
         f.write(f"open unit 1 card name {self.id.lower()}.psf\n")
         f.write(f"read psf card unit 1 \n")
         f.write("close unit 1\n")
+        if build:
+            f.write(f"open unit 2 card name {self.id.lower()}.crd\n")  #
+            f.write(f"read coor card unit 2 \n")
+            f.write("close unit 2\n")
         if num_of_Polymers != 1:
             f.write(f"rename segid {self.id}_1 sele all end\n")
+            f.write(f"")
             for i in range(num_of_Polymers - 1):
                 f.write(f"generate {self.id}_{i+2} duplicate {self.id}_1\n")
+                f.write(
+                    f"coor trans sele segid {self.id}_{i+2} xdir 100 ydir 0 zdir 0\n"
+                )
         f.write(
             f"read sequence {solvent_res} {solvent_num}\ngenerate {solvent_res} first none last none noangle nodihedral setup warn\n"
         )
+        if build:
+            f.write("\nic gene\nic param\n")
+            n = 1
+
+            for crd in coords:
+
+                f.write(
+                    f"ic seed {solvent_res} {n} {atoms[0].name} {solvent_res} {n} {atoms[2].name} {solvent_res} {n} {atoms[1].name}\n"
+                )
+                f.write(
+                    f"coor trans sele segid {solvent_res} .and. resid {n} xdir {crd[0]} ydir {crd[1]} zdir {crd[2]}\n"
+                )
+                n += 1
         if salt:
             f.write(
                 f"read sequence {c} {c_n}\ngenerate {c} first none last none setup warn\n"
@@ -399,7 +428,10 @@ class PolymerChain:
                 f"read sequence {a} {a_n}\ngenerate {a} first none last none setup warn\n"
             )
         f.write(
-            f"open unit 10 write form name ./{self.id.lower()}_in_{solvent_res.lower()}.psf\nwrite unit 10 psf xplor card\nclose unit 10\nstop"
+            f"open unit 10 write form name ./{self.id.lower()}_in_{solvent_res.lower()}.psf\nwrite unit 10 psf xplor card\nclose unit 10\n"
+        )
+        f.write(
+            f"write coor card name {self.id.lower()}_in_{solvent_res.lower()}.crd\n\nstop"
         )
         f.close()
         print("invoking charmm-process")
@@ -440,6 +472,7 @@ class PolymerChain:
         iter=50,
         dt=0.0005,
         p=10,
+        T=50,
         useBMH=False,
         freeze=False,
         multiplicator=1.1,
@@ -466,7 +499,7 @@ class PolymerChain:
             constraints=None,
         )
         integrator = NoseHooverIntegrator(
-            100 * unit.kelvin, 50 / unit.picosecond, 0.0001 * unit.picoseconds
+            T * unit.kelvin, 50 / unit.picosecond, 0.00005 * unit.picoseconds
         )
         if useBMH:
             system, epsilons, sigm = sd.eliminate_LJ(psf)
@@ -485,10 +518,9 @@ class PolymerChain:
         except:
             print("failed to Transform into octahedron")
         print("MINImizing ENERgy")
-        simulation.minimizeEnergy(maxIterations=200_000_000)
+        simulation.minimizeEnergy(maxIterations=2_000_000_000)
         print(simulation.context.getState(getEnergy=True).getPotentialEnergy())
-        simulation.context.reinitialize(preserveState=True)
-        simulation.context.setVelocitiesToTemperature(300 * unit.kelvin)
+        simulation.context.setVelocitiesToTemperature(50 * unit.kelvin)
         simulation.reporters.append(
             StateDataReporter(
                 stdout,
@@ -506,7 +538,13 @@ class PolymerChain:
             )
         )
         simulation.reporters.append(DCDReporter(f"pre_comp.dcd", 10_000))
-        simulation.step(10_000)
+        integrator.setTemperature(50 * unit.kelvin)
+        simulation.context.reinitialize(preserveState=True)
+        simulation.step(100_000)
+        simulation.minimizeEnergy(maxIterations=200_000_000)
+        integrator.setTemperature(T * unit.kelvin)
+        integrator.setStepSize(dt * unit.picoseconds)
+        simulation.context.reinitialize(preserveState=True)
         simulation.minimizeEnergy(maxIterations=200_000_000)
         simulation.step(200_000)
         print("\nINITial SYSTem ENERgy")
@@ -533,10 +571,10 @@ class PolymerChain:
                 solventDielectric=60,
             )
             integrator = NoseHooverIntegrator(
-                100 * unit.kelvin, 50 / unit.picosecond, dt * unit.picoseconds
+                T * unit.kelvin, 50 / unit.picosecond, dt * unit.picoseconds
             )
             barostat = system.addForce(
-                MonteCarloBarostat(p * unit.atmospheres, 100 * unit.kelvin, 10)
+                MonteCarloBarostat(p * unit.atmospheres, 50 * unit.kelvin, 10)
             )
             if useBMH:
                 system, epsilons, sigm = sd.eliminate_LJ(psf)
@@ -580,8 +618,13 @@ class PolymerChain:
                     20_000,
                 )
             )
+            integrator.setTemperature(50 * unit.kelvin)
+            simulation.context.reinitialize(preserveState=True)
+
             simulation.step(1000)
             system.removeForce(barostat)
+            integrator.setTemperature(T * unit.kelvin)
+            simulation.context.setVelocitiesToTemperature(T * unit.kelvin)
             simulation.context.reinitialize(preserveState=True)
             simulation.step(500_000)
             boxv = simulation.context.getState().getPeriodicBoxVectors()
@@ -619,6 +662,7 @@ class PolymerChain:
         nstep=2_000_000,
         dt=0.0005,
         p=10,
+        T=300,
         iter=50,
         useBMH=False,
         freeze=False,
@@ -645,7 +689,7 @@ class PolymerChain:
             constraints=None,
         )
         integrator = NoseHooverIntegrator(
-            100 * unit.kelvin, 50 / unit.picosecond, 0.0001 * unit.picoseconds
+            T * unit.kelvin, 50 / unit.picosecond, 0.0001 * unit.picoseconds
         )
 
         if useBMH:
@@ -697,7 +741,7 @@ class PolymerChain:
         boxv = simulation.context.getState().getPeriodicBoxVectors()
         # psf.boxVectors = boxv
         for i in range(iter):
-            print(f"TimeStep set to {dt}ps")
+            # print(f"TimeStep set to {dt}ps")
             state = simulation.context.getState(getPositions=True, getVelocities=True)
             rst = f"{self.id.lower()}_temp.rst"
             with open(rst, "w") as f:
@@ -710,7 +754,7 @@ class PolymerChain:
                 solventDielectric=60,
             )
             integrator = NoseHooverIntegrator(
-                100 * unit.kelvin, 50 / unit.picosecond, dt * unit.picoseconds
+                T * unit.kelvin, 50 / unit.picosecond, dt * unit.picoseconds
             )
             barostat = system.addForce(
                 MonteCarloBarostat(p * unit.atmospheres, 100 * unit.kelvin, 10)
@@ -759,8 +803,14 @@ class PolymerChain:
                 )
             )
             # print("STARting DYNAmics")
+            integrator.setTemperature(50 * unit.kelvin)
+            integrator.setStepSize(0.00005 * unit.picoseconds)
+            simulation.context.reinitialize(preserveState=True)
             simulation.step(1000)
             system.removeForce(barostat)
+            integrator.setTemperature(T * unit.kelvin)
+            integrator.setStepSize(dt * unit.picoseconds)
+            simulation.context.setVelocitiesToTemperature(T * unit.kelvin)
             simulation.context.reinitialize(preserveState=True)
             simulation.step(500_000)
             boxv = simulation.context.getState().getPeriodicBoxVectors()

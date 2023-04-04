@@ -82,7 +82,7 @@ def pack_system(
         )
     else:
         f.write(
-            f"tolerance 1.0\nmovebadrandom\nsidemax {2*boxsize}\nstructure {polymerchainpdb}\nnumber {n}\ninside box {boxsize/3} {boxsize/3} {boxsize/3} {2*boxsize/3} {(2*boxsize/3)*.9}  {(2*boxsize/3)*.8} \nradius 5.0\nend structure\n"
+            f"tolerance 1.0\nmovebadrandom\nsidemax {2*boxsize}\nstructure {polymerchainpdb}\nnumber {n}\ninside box {int(boxsize/3)} {int(boxsize/3)} {int(boxsize/3)} {int(2*boxsize/3)} {int(2*boxsize/3)*.9}  {int(2*boxsize/3)*.8} \nradius 5.0\nend structure\n"
         )
     f.write(
         f"structure {solventpdb}\nnumber {n_s}\ninside box 0. 0. 0. {boxsize*1} {boxsize*.9} {boxsize*.8}\nradius 7.0\n"

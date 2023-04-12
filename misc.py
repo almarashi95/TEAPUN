@@ -2,6 +2,8 @@ import random
 import os
 import numpy as np
 from openmm import Vec3
+from datetime import date
+from itertools import product
 
 
 def find_patch(m1, m2):
@@ -31,30 +33,52 @@ def gen_box(psf, crd, enforce_cubic=False, octahedron=False):
     boxlx = max_crds[0] - min_crds[0]
     boxly = max_crds[1] - min_crds[1]
     boxlz = max_crds[2] - min_crds[2]
-    a = 1.02 * np.max([boxlx, boxly, boxlz])
+    a = np.max([boxlx, boxly, boxlz])
     if enforce_cubic:
         print(f"Forced Cubic Box {a=}")
         psf.setBox(a, a, a)
     elif octahedron:
         print(f"Octahedral BoxDimensions: {a}")
-        # psf.setBox(
-        #     a,
-        #     a,
-        #     a,
-        # )
         vectors = (
             Vec3(1, 0, 0),
             Vec3(1 / 3, 2 * np.sqrt(2) / 3, 0),
             Vec3(-1 / 3, np.sqrt(2) / 3, np.sqrt(6) / 3),
         )
         psf.boxVectors = [(a) * v for v in vectors]
-        # psf.setBox(a, a, a)
 
     else:
         print("BoxDimensions:")
         print(f"{boxlx, boxly, boxlz}")
         psf.setBox(boxlx, boxly, boxlz)
     return psf
+
+
+def solvation_coordinates(x, y, z, solvent_res, atoms):
+    coords = product(x, y, z)
+    f = open("slvnt.crd", "w")
+    f.write("* NONE *\n")
+    f.write(f"*  DATE {date.today()} CREATED BY TEAPUN\n*\n")
+    f.write(f"     {len(list(coords))*len(atoms)}  EXT\n")
+    coords = product(x, y, z)
+    ctr1 = 1
+    for ctr, c in enumerate(coords):
+        x = c[0]
+        y = c[1]
+        z = c[2]
+        f.write(
+            f"{ctr1:10d}{ctr+1:10d}  {solvent_res:<8.8s}  {atoms[0].name:<8.8s}{x+1:20.10f}{y:20.10f}{z+1:20.10f}  {solvent_res:<8.8s}  {ctr+1:<8d}0.0000000000\n"
+        )
+        ctr1 += 1
+        f.write(
+            f"{ctr1:10d}{ctr+1:10d}  {solvent_res:<8.8s}  {atoms[1].name:<8.8s}{x:20.10f}{y+1:20.10f}{z+1:20.10f}  {solvent_res:<8.8s}  {ctr+1:<8d}0.0000000000\n"
+        )
+        ctr1 += 1
+        f.write(
+            f"{ctr1:10d}{ctr+1:10d}  {solvent_res:<8.8s}  {atoms[2].name:<8.8s}{x:20.10f}{y:20.10f}{z:20.10f}  {solvent_res:<8.8s}  {ctr+1:<8d}0.0000000000\n"
+        )
+        ctr1 += 1
+    f.close()
+    return "slvnt.crd"
 
 
 def pack_system(
@@ -223,7 +247,9 @@ def write_xml(PolymerChain, out_file="output.xml"):
         lj14scale="1.0",
         useDispersionCorrection="False",
     )
-    use_charge = ET.SubElement(NonBonded, "UseAttributeFromResidue", name="charge")
+    use_charge = ET.SubElement(
+        NonBonded, "UseAttributeFromResidue", name="charge"
+    )
     for atm in PolymerChain.nonb:
         atm_types = ET.SubElement(
             NonBonded, "Atom", epsilon="0.0", sigma="1.0", type=atm.type
@@ -240,7 +266,7 @@ def write_xml(PolymerChain, out_file="output.xml"):
         )
     tree = ET.ElementTree(forcefield)
     xml_str = ET.tostring(forcefield)
-    xml_str_pretty = md.parseString(xml_str).toprettyxml(indent="\t")
+    xml_str_pretty = md.parseString(xml_str).toprettyxml(indent="    ")
     # tree.write(f"test.xml", encoding="UTF-8", xml_declaration=True, pretty_print=True)
     with open(out_file, "w") as f:
         f.write(xml_str_pretty)

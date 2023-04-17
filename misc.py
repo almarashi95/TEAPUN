@@ -19,7 +19,12 @@ def find_patch(m1, m2):
         print(f"no Patch for {m1,m2} found")
 
 
-def gen_box(psf, crd, enforce_cubic=False, octahedron=False):
+def gen_box(
+    psf,
+    crd,
+    enforce_cubic=False,
+    octahedron=False,
+):
     coords = crd.positions
     min_crds = [coords[0][0], coords[0][1], coords[0][2]]
     max_crds = [coords[0][0], coords[0][1], coords[0][2]]
@@ -54,6 +59,7 @@ def gen_box(psf, crd, enforce_cubic=False, octahedron=False):
 
 
 def solvation_coordinates(x, y, z, solvent_res, atoms):
+    # for now only works for water
     coords = product(x, y, z)
     f = open("slvnt.crd", "w")
     f.write("* NONE *\n")

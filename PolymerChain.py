@@ -342,6 +342,7 @@ class PolymerChain:
         verbose=False,
         pdb_file="default",
         solvent_pdb="default",
+        crd="default",
         boxsize=1500,
         salt=False,
         c="",
@@ -358,6 +359,8 @@ class PolymerChain:
         ######################################################################################################
         if pdb_file == "default":
             pdb_file = f"{self.id.lower()}_relax.pdb"
+        if crd == "default":
+            crd = f"{self.id.lower()}.crd"
         ######################################################################################################
         # checking toppar for Solvent residue
         ######################################################################################################
@@ -388,15 +391,19 @@ class PolymerChain:
                         break
                 except AttributeError:
                     pass
-
+        spacing = 5
         if square:
-            x = np.linspace(0, int(boxsize), int(boxsize // 4.5))
-            y = np.linspace(0, int(boxsize), int(boxsize // 4.5))
-            z = np.linspace(0, int(boxsize), int(boxsize // 4.5))
+            x = np.linspace(0, int(boxsize), int(boxsize // spacing))
+            y = np.linspace(0, int(boxsize), int(boxsize // spacing))
+            z = np.linspace(0, int(boxsize), int(boxsize // spacing))
         else:
-            x = np.linspace(0, int(boxsize), int(boxsize // 4.5))
-            y = np.linspace(0, int(boxsize * 0.9), int(boxsize * 0.9 // 4.5))
-            z = np.linspace(0, int(boxsize * 0.8), int(boxsize * 0.8 // 4.5))
+            x = np.linspace(0, int(boxsize), int(boxsize // spacing))
+            y = np.linspace(
+                0, int(boxsize * 0.9), int(boxsize * 0.9 // spacing)
+            )
+            z = np.linspace(
+                0, int(boxsize * 0.8), int(boxsize * 0.8 // spacing)
+            )
         coords = product(x, y, z)
         if build:
             solvent = misc.solvation_coordinates(x, y, z, solvent_res, atoms)
@@ -420,7 +427,7 @@ class PolymerChain:
         f.write(f"read psf card unit 1 \n")
         f.write("close unit 1\n")
         if build or read:
-            f.write(f"open unit 2 card name {self.id.lower()}.crd\n")  #
+            f.write(f"open unit 2 card name {crd}\n")  #
             f.write(f"read coor card unit 2 \n")
             f.write("close unit 2\n")
             f.write(
@@ -447,12 +454,12 @@ class PolymerChain:
             f.write(f"open unit 15 card name {solvent}\n")  #
             f.write(f"read coor append card unit 15 \n")
             f.write(
-                f"bomblev -1\ndelete atom sele .byres. (segid {solvent_res} .and. segid {self.id} .around. 2.5) end\n"
+                f"bomblev -1\ndelete atom sele .byres. (segid {solvent_res} .and. segid {self.id} .around. 3.5) end\n"
             )
             if num_of_Polymers != 1:
                 for i in range(num_of_Polymers):
                     f.write(
-                        f"bomblev -1\ndelete atom sele .byres. (segid {solvent_res} .and. segid {self.id}_{i+1} .around. 2.5) end\n"
+                        f"bomblev -1\ndelete atom sele .byres. (segid {solvent_res} .and. segid {self.id}_{i+1} .around. 3.5) end\n"
                     )
         if salt:
             f.write(
@@ -747,7 +754,12 @@ class PolymerChain:
         iter=50,
         useBMH=False,
         freeze=False,
+        uPME=False,
     ):
+        if uPME:
+            nb_meth = PME
+        else:
+            nb_meth = CutoffPeriodic
         print(f"EQUIlibrate Chain\nTEA_PUN powered by openMM")
         psf = CharmmPsfFile(psf)
         pdb = PDBFile("init.pdb")
@@ -773,7 +785,7 @@ class PolymerChain:
         )
         system = psf.createSystem(
             params,
-            nonbondedMethod=CutoffPeriodic,
+            nonbondedMethod=nb_meth,
             nonbondedCutoff=1.5 * unit.nanometer,
             constraints=None,
         )
@@ -819,7 +831,7 @@ class PolymerChain:
         simulation.reporters.append(DCDReporter(f"pre_comp.dcd", 10_000))
         simulation.step(10_000)
         simulation.minimizeEnergy(maxIterations=200_000_000)
-        simulation.step(200_000)
+        simulation.step(nstep)
         # simulation.context.setVelocitiesToTemperature(300 * unit.kelvin)
         print("\nINITial SYSTem ENERgy")
         print(simulation.context.getState(getEnergy=True).getPotentialEnergy())
@@ -841,8 +853,8 @@ class PolymerChain:
                 f.write(XmlSerializer.serialize(state))
             system = psf.createSystem(
                 params,
-                nonbondedMethod=CutoffPeriodic,
-                nonbondedCutoff=1.3 * unit.nanometer,
+                nonbondedMethod=nb_meth,
+                nonbondedCutoff=1.5 * unit.nanometer,
                 rigidWater=False,
                 solventDielectric=60,
             )
@@ -878,19 +890,6 @@ class PolymerChain:
                     separator="\t",
                 )
             )
-            if ctr == 0:
-                try:
-                    simulation.context.setPeriodicBoxVectors(*boxv)
-                    print(
-                        f"setting {simulation.context.getState().getPeriodicBoxVectors()}"
-                    )
-                    simulation.minimizeEnergy(maxIterations=2_000_000)
-                except:
-                    print("failed\nusing init box")
-            if ctr > 0:
-                print(f"Using Dimensions: {boxv}")
-                simulation.context.setPeriodicBoxVectors(*boxv)
-
             simulation.reporters.append(
                 DCDReporter(
                     f"{self.id.lower()}_equilibration_{dt}_{p}_{ctr}_rst.dcd",
@@ -917,7 +916,7 @@ class PolymerChain:
             ctr += 1
         system = psf.createSystem(
             params,
-            nonbondedMethod=CutoffPeriodic,
+            nonbondedMethod=nb_meth,
             nonbondedCutoff=1.5 * unit.nanometer,
             constraints=None,
         )
@@ -931,9 +930,29 @@ class PolymerChain:
         simulation = Simulation(
             psf.topology, system, integrator, platform, prop
         )
-        state = simulation.context.getState(
-            getPositions=True, getVelocities=True
+        simulation.reporters.append(
+            StateDataReporter(
+                stdout,
+                10_000,
+                step=True,
+                time=True,
+                potentialEnergy=True,
+                kineticEnergy=True,
+                totalEnergy=True,
+                temperature=True,
+                volume=True,
+                density=True,
+                speed=True,
+                separator="\t",
+            )
         )
+        simulation.reporters.append(
+            DCDReporter(
+                f"{self.id.lower()}_equilibration_{dt}_{p}_{ctr}_rst.dcd",
+                20_000,
+            )
+        )
+        simulation.context.setState(state)
         simulation.step(nstep)
         self.boxv = simulation.context.getState().getPeriodicBoxVectors()
         state = simulation.context.getState(
@@ -949,10 +968,17 @@ class PolymerChain:
         nstep=2_000_000,
         dt=0.0005,
         p=10,
+        T=200,
         iter=50,
         useBMH=False,
         freeze=False,
+        co=1.3,
+        uPME=False,
     ):
+        if uPME:
+            nb_meth = PME
+        else:
+            nb_meth = CutoffPeriodic
         print(f"EQUIlibrate Chain\nTEA_PUN powered by openMM")
         psf = CharmmPsfFile(psf)
         pdb = PDBFile("init.pdb")
@@ -975,12 +1001,12 @@ class PolymerChain:
         psf = misc.gen_box(psf, pdb, enforce_cubic=True)
         system = psf.createSystem(
             params,
-            nonbondedMethod=CutoffPeriodic,
-            nonbondedCutoff=1.5 * unit.nanometer,
+            nonbondedMethod=nb_meth,
+            nonbondedCutoff=co * unit.nanometer,
             constraints=None,
         )
         integrator = NoseHooverIntegrator(
-            100 * unit.kelvin, 50 / unit.picosecond, 0.0001 * unit.picoseconds
+            T * unit.kelvin, 50 / unit.picosecond, 0.0001 * unit.picoseconds
         )
         # barostat = system.addForce(
         #     MonteCarloBarostat(1 * unit.atmospheres, 300 * unit.kelvin, 10)
@@ -1049,13 +1075,13 @@ class PolymerChain:
                 f.write(XmlSerializer.serialize(state))
             system = psf.createSystem(
                 params,
-                nonbondedMethod=CutoffPeriodic,
+                nonbondedMethod=nb_meth,
                 nonbondedCutoff=1.3 * unit.nanometer,
                 rigidWater=False,
                 solventDielectric=60,
             )
             integrator = NoseHooverIntegrator(
-                100 * unit.kelvin, 50 / unit.picosecond, dt * unit.picoseconds
+                T * unit.kelvin, 50 / unit.picosecond, dt * unit.picoseconds
             )
             barostat = system.addForce(
                 MonteCarloBarostat(p * unit.atmospheres, 100 * unit.kelvin, 10)
@@ -1118,7 +1144,7 @@ class PolymerChain:
             ctr += 1
         system = psf.createSystem(
             params,
-            nonbondedMethod=CutoffPeriodic,
+            nonbondedMethod=nb_meth,
             nonbondedCutoff=1.5 * unit.nanometer,
             constraints=None,
         )
@@ -1130,6 +1156,31 @@ class PolymerChain:
             # print(np.sum(epsilons))
             # system = eliminate_elec(psf)
             system = sd.usemodBMH(self, psf, epsilons, sigm, NBfix=True)
+        simulation = Simulation(
+            psf.topology, system, integrator, platform, prop
+        )
+        simulation.reporters.append(
+            StateDataReporter(
+                stdout,
+                10_000,
+                step=True,
+                time=True,
+                potentialEnergy=True,
+                kineticEnergy=True,
+                totalEnergy=True,
+                temperature=True,
+                volume=True,
+                density=True,
+                speed=True,
+                separator="\t",
+            )
+        )
+        simulation.reporters.append(
+            DCDReporter(
+                f"{self.id.lower()}_equilibration_{dt}_{p}_{ctr}_rst.dcd",
+                20_000,
+            )
+        )
 
         simulation.step(nstep)
         self.boxv = simulation.context.getState().getPeriodicBoxVectors()

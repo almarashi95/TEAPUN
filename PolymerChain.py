@@ -353,6 +353,7 @@ class PolymerChain:
         a_n=0,
         square=False,
         read=False,
+        n_proc=16,
     ):
         ######################################################################################################
         ##Set pdbfile for packing to default if not defined
@@ -421,7 +422,7 @@ class PolymerChain:
         #######################################################################################################
         f = open("tmp.inp", "w")
         f.write(
-            f"dimension chsize 50000000\nioformat extended\nstream {self.toppar}\n"
+            f"dimension chsize 50000000\nioformat extended\nstream {self.toppar}\nset parall {n_proc}\n"
         )
         f.write(f"open unit 1 card name {self.id.lower()}.psf\n")
         f.write(f"read psf card unit 1 \n")
@@ -507,6 +508,183 @@ class PolymerChain:
                 a_n=a_n,
             )
 
+    def solvate(
+        self,
+        num_of_Polymers,
+        solvent_res,
+        solvent_num,
+        pack=False,
+        build=True,
+        verbose=False,
+        pdb_file="default",
+        solvent_pdb="default",
+        crd="default",
+        boxsize=1500,
+        salt=False,
+        c="",
+        c_pdb="",
+        c_n=0,
+        a="",
+        a_pdb="",
+        a_n=0,
+        square=False,
+        read=False,
+        n_proc=16,
+    ):
+        ######################################################################################################
+        ##Set pdbfile for packing to default if not defined
+        ######################################################################################################
+        if pdb_file == "default":
+            pdb_file = f"{self.id.lower()}_relax.pdb"
+        if crd == "default":
+            crd = f"{self.id.lower()}.crd"
+        ######################################################################################################
+        # checking toppar for Solvent residue
+        ######################################################################################################
+        found = False
+        for i in self._allresidues:
+            try:
+                if solvent_res == i.name:
+                    print("Solvent found in toppar")
+                    atoms = i.atoms
+                    found = True
+                    break
+            except AttributeError:
+                pass
+        if salt:
+            for i in self._allresidues:
+                try:
+                    if c == i.name:
+                        print("cation found in toppar")
+                        found = True
+                        break
+                except AttributeError:
+                    pass
+            for i in self._allresidues:
+                try:
+                    if a == i.name:
+                        print("anion found in toppar")
+                        found = True
+                        break
+                except AttributeError:
+                    pass
+        if not found:
+            print(f"ERRor something not in toppar!")
+            return
+        spacing = 6
+        if square:
+            x = np.linspace(0, int(boxsize), int(boxsize // spacing))
+            y = np.linspace(0, int(boxsize), int(boxsize // spacing))
+            z = np.linspace(0, int(boxsize), int(boxsize // spacing))
+        else:
+            x = np.linspace(0, int(boxsize), int(boxsize // spacing))
+            y = np.linspace(
+                0, int(boxsize * 0.9), int(boxsize * 0.9 // spacing)
+            )
+            z = np.linspace(
+                0, int(boxsize * 0.8), int(boxsize * 0.8 // spacing)
+            )
+        coords = product(x, y, z)
+        if build:
+            solvent = misc.solvation_coordinates(x, y, z, solvent_res, atoms)
+        elif read:
+            solvent = "slvnt.crd"
+        if solvent_num == "auto":
+            solvent_num = len(list(coords))
+            coords = product(x, y, z)
+
+        #######################################################################################################
+        #######################################################################################################
+        print("GENErating PSF\nTEA_PUN powered by CHARMM\n")
+        #######################################################################################################
+        f = open("tmp.inp", "w")
+        f.write(
+            f"dimension chsize 50000000\nioformat extended\nstream {self.toppar}\nset parall {n_proc}\n"
+        )
+        f.write(f"open unit 1 card name {self.id.lower()}.psf\n")
+        f.write(f"read psf card unit 1 \n")
+        f.write("close unit 1\n")
+        f.write(f"open unit 2 card name {crd}\n")  #
+        f.write(f"read coor card unit 2 \n")
+        f.write("close unit 2\n")
+        f.write(
+            f"coor trans sele segid {self.id} end xdir {boxsize/2} ydir {boxsize/2} zdir {boxsize/2}\n"
+        )
+        if num_of_Polymers != 1:
+            f.write(
+                f"coor trans sele segid {self.id} end xdir -50 ydir 0 zdir 0\n"
+            )
+            f.write(f"rename segid {self.id}_1 sele all end\n")
+            f.write(f"\n")
+            for i in range(num_of_Polymers - 1):
+                f.write(f"generate {self.id}_{i+2} duplicate {self.id}_1\n")
+                f.write(
+                    f"coor dupl sele segid {self.id}_{i+1} end sele segid  {self.id}_{i+2} end\n"
+                )
+                f.write(
+                    f"coor trans sele segid {self.id}_{i+2} end xdir 70 ydir 0 zdir 0\n"
+                )
+        f.write(f"write coor card name {self.id.lower()}_n.crd\n")
+        f.write(
+            f"read sequence {solvent_res} 1\ngenerate {solvent_res} first none last none noangle nodihedral setup warn\n"
+        )
+
+        f.write(
+            f"open unit 10 write form name ./{self.id.lower()}_in_{solvent_res.lower()}.psf\nwrite unit 10 psf xplor card\nclose unit 10\n"
+        )
+        f.write(
+            f"write coor card name {self.id.lower()}_in_{solvent_res.lower()}.crd\n\nstop"
+        )
+        f.close()
+        print("invoking charmm-process")
+        os.system(f"{self.charmm}  -i tmp.inp >solvate.out")
+        print("Switching to Parmed")
+        misc.make_psf(
+            f"{self.id.lower()}_in_{solvent_res.lower()}.psf", solvent_num
+        )
+        print("invoking charmm-process")
+        f = open("tmp.inp", "w")
+        f.write(
+            f"dimension chsize 50000000\nioformat extended\nstream {self.toppar}\nset parall {n_proc}\n"
+        )
+        f.write(
+            f"open unit 1 card name {self.id.lower()}_in_{solvent_res.lower()}.psf\n"
+        )
+        f.write(f"read psf card unit 1 \n")
+        f.write("close unit 1\n")
+
+        f.write(f"open unit 2 card name {self.id.lower()}_n.crd\n")  #
+        f.write(f"read coor card unit 2 \n")
+        f.write("close unit 2\n")
+
+        f.write(f"open unit 15 card name {solvent}\n")  #
+        f.write(f"read coor append card unit 15 \n")
+        f.write(
+            f"bomblev -1\ndelete atom sele .byres. (segid {solvent_res} .and. segid {self.id} .around. 3.5) end\n"
+        )
+        if num_of_Polymers != 1:
+            for i in range(num_of_Polymers):
+                f.write(
+                    f"bomblev -1\ndelete atom sele .byres. (segid {solvent_res} .and. segid {self.id}_{i+1} .around. 3.5) end\n"
+                )
+        f.write(
+            f"open unit 10 write form name ./{self.id.lower()}_in_{solvent_res.lower()}.psf\nwrite unit 10 psf xplor card\nclose unit 10\n"
+        )
+        f.write(
+            f"write coor card name {self.id.lower()}_in_{solvent_res.lower()}.crd\n\nstop"
+        )
+        f.close()
+        os.system(f"{self.charmm}  -i tmp.inp >solvate_2.out")
+        print(f"check {self.id.lower()}_in_{solvent_res.lower()}.psf")
+
+        #######################################################################################################
+        #######################################################################################################
+        if verbose == False:
+            os.system("rm tmp.inp")
+            os.system("rm solvate.out")
+            os.system("rm solvate_2.out")
+            os.system("rm slvnt.crd")
+
     def equilibrate(
         self,
         psf,
@@ -577,7 +755,7 @@ class PolymerChain:
             except:
                 print("failed to Transform into octahedron")
         print("MINImizing ENERgy")
-        simulation.minimizeEnergy(maxIterations=2_000_000)
+        # simulation.minimizeEnergy(maxIterations=2_000_000)
         print(simulation.context.getState(getEnergy=True).getPotentialEnergy())
         simulation.context.setVelocitiesToTemperature(5 * unit.kelvin)
         simulation.reporters.append(

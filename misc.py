@@ -4,6 +4,7 @@ import numpy as np
 from openmm import Vec3
 from datetime import date
 from itertools import product
+import parmed as pmd
 
 
 def find_patch(m1, m2):
@@ -276,3 +277,92 @@ def write_xml(PolymerChain, out_file="output.xml"):
     # tree.write(f"test.xml", encoding="UTF-8", xml_declaration=True, pretty_print=True)
     with open(out_file, "w") as f:
         f.write(xml_str_pretty)
+
+
+def make_psf(psf, n_solv):
+    topology = pmd.load_file(psf)
+
+    residue = topology.residues[len(topology.residues) - 1]
+
+    n_atoms = len(residue.atoms)  # number of atoms in the original residue
+
+    for i in range(1, n_solv):
+        residue_copy = pmd.Residue(
+            name=residue.name,
+            number=residue.number + i,
+            chain=residue.chain,
+            segid=residue.segid,
+        )
+        topology.residues.append(residue_copy)
+        for atom in residue.atoms:
+            a = pmd.Atom(
+                name=atom.name,
+                type=atom.type,
+                charge=atom.charge,
+                mass=atom.mass,
+                atomic_number=atom.atomic_number,
+            )
+            topology.atoms.append(a)
+            residue_copy.add_atom(a)
+
+    for j in range(residue.idx + 1, len(topology.residues)):
+        r = topology.residues[j]
+        # print(r)
+        offset = (
+            j - residue.idx
+        ) * n_atoms  # calculate the offset for atom indices
+        for ctr, atom in enumerate(r.atoms):
+            for bond in residue.atoms[ctr].bonds:
+                topology.bonds.append(
+                    pmd.Bond(
+                        atom1=topology.atoms[bond.atom1.idx + offset],
+                        atom2=topology.atoms[bond.atom2.idx + offset],
+                    )
+                )
+
+            for angle in residue.atoms[ctr].angles:
+                topology.angles.append(
+                    pmd.Angle(
+                        atom1=topology.atoms[angle.atom1.idx + offset],
+                        atom2=topology.atoms[angle.atom2.idx + offset],
+                        atom3=topology.atoms[angle.atom3.idx + offset],
+                    )
+                )
+
+            for dihedral in residue.atoms[ctr].dihedrals:
+                topology.dihedrals.append(
+                    pmd.Dihedral(
+                        atom1=topology.atoms[dihedral.atom1.idx + offset],
+                        atom2=topology.atoms[dihedral.atom2.idx + offset],
+                        atom3=topology.atoms[dihedral.atom3.idx + offset],
+                        atom4=topology.atoms[dihedral.atom4.idx + offset],
+                        type=dihedral.type,
+                    )
+                )
+
+            for improper in residue.atoms[ctr].impropers:
+                topology.dihedrals.append(
+                    pmd.Improper(
+                        atom1=topology.atoms[improper.atom1.idx + offset],
+                        atom2=topology.atoms[improper.atom2.idx + offset],
+                        atom3=topology.atoms[improper.atom3.idx + offset],
+                        atom4=topology.atoms[improper.atom4.idx + offset],
+                        type=improper.type,
+                    )
+                )
+
+            for cmap in residue.atoms[ctr].cmaps:
+                topology.cmaps.append(
+                    pmd.Cmap(
+                        atom1=topology.atoms[cmap.atom1.idx + offset],
+                        atom2=topology.atoms[cmap.atom2.idx + offset],
+                        atom3=topology.atoms[cmap.atom3.idx + offset],
+                        atom4=topology.atoms[cmap.atom4.idx + offset],
+                        atom5=topology.atoms[cmap.atom5.idx + offset],
+                        atom6=topology.atoms[cmap.atom6.idx + offset],
+                        atom7=topology.atoms[cmap.atom7.idx + offset],
+                        atom8=topology.atoms[cmap.atom8.idx + offset],
+                        type=cmap.type,
+                    )
+                )
+    topology.save(psf, overwrite=True)

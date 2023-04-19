@@ -185,7 +185,7 @@ class PolymerChain:
         #################################################################################################################################################
         z_vector = 0.4
         r = (z_vector * self.chain_length) / 2
-        f.write("bomblev -1\n")
+        f.write("bomblev -5\n")
 
         for m in range(len(names)):
             c = names[:m].count(names[m])
@@ -530,6 +530,8 @@ class PolymerChain:
         square=False,
         read=False,
         n_proc=16,
+        mini=False,
+        chsize=50000000,
     ):
         ######################################################################################################
         ##Set pdbfile for packing to default if not defined
@@ -599,7 +601,7 @@ class PolymerChain:
         #######################################################################################################
         f = open("tmp.inp", "w")
         f.write(
-            f"dimension chsize 50000000\nioformat extended\nstream {self.toppar}\nset parall {n_proc}\n"
+            f"dimension chsize {int(chsize)}\nioformat extended\nstream {self.toppar}\nset parall {n_proc}\n"
         )
         f.write(f"open unit 1 card name {self.id.lower()}.psf\n")
         f.write(f"read psf card unit 1 \n")
@@ -667,6 +669,8 @@ class PolymerChain:
                 f.write(
                     f"bomblev -1\ndelete atom sele .byres. (segid {solvent_res} .and. segid {self.id}_{i+1} .around. 3.5) end\n"
                 )
+        if mini:
+            f.write("\nenergy\nmini sd nstep 500\n")
         f.write(
             f"open unit 10 write form name ./{self.id.lower()}_in_{solvent_res.lower()}.psf\nwrite unit 10 psf xplor card\nclose unit 10\n"
         )

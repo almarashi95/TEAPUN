@@ -1,3 +1,6 @@
+import sys
+import os
+sys.path.append("/site/raid3/mazin/TEAPUN/")
 from PolymerChain import PolymerChain
 
 ###############################
@@ -7,35 +10,33 @@ from PolymerChain import PolymerChain
 chain = PolymerChain(
     "p1",
     monomers=["AMC"],
-    n_of_monomers=[45],
-    toppar="testing_files/cg_dihe.str",
-    charmm="charmm",
+    n_of_monomers=[4500],
+    toppar="cg_dihe.str",
+    #charmm="charmm",
+    charmm="charmm_c47_omm_domdecgpu"
 )
 # chain.build_Monomers(verbose=True)
-# chain.build_simpleChain(verbose=False, iter=0)  # , random=True)
-#chain.relax_chain(5_000_000)
-chain.solvate_old(
+chain.build_simpleChain(verbose=True, iter=0)  # , random=True)
+chain.relax_chain(500_000)
+chain.solvate(
     1,
     "BMW",
-    20_000,
-    solvent_pdb="testing_files/bmw.pdb",
+    "auto",
+    #square=True,
     verbose=True,
-    boxsize=500,
+    boxsize=701,
+    build=True,
     salt=False,
-    c="MG",
-    c_pdb="testing_files/mg.pdb",
-    c_n=19,
-    a="SO4",
-    a_pdb="testing_files/so4.pdb",
-    a_n=19,
-)
-chain.equilibrate("p1_in_bmw.psf", "p1_bmw.pdb", nstep=50_000_000)
+    usepdb=True,
+        )
+chain.equilibrate("p1_in_bmw.psf", "p1_in_bmw.crd", nstep=5_000_000,)
 chain.restart(
     "p1_in_bmw.psf",
     "p1.rst",
+    uPME=True,
+    T=300,
+    dt=0.002,
     nstep=5_000_000,
-    dt2p=[1, 1, 1, 1, 1, 1],
-    boxl=48,
-)
+    )
 ######################################################################################################################################################################################################################
 #####################################################################################################################################################################################################################

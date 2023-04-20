@@ -312,6 +312,8 @@ def make_psf(psf, n_solv):
             j - residue.idx
         ) * n_atoms  # calculate the offset for atom indices
         for ctr, atom in enumerate(r.atoms):
+            if ctr == 0:
+                topology.groups.append(pmd.Group(atom, 1, 0))
             for bond in residue.atoms[ctr].bonds:
                 topology.bonds.append(
                     pmd.Bond(

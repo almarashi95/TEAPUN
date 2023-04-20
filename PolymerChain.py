@@ -279,8 +279,7 @@ class PolymerChain:
         ########################################################################################################################################################
         system = psf.createSystem(
             toppar,
-            nonbondedMethod=PME,
-            ewaldErrorTolerance=0.005,
+            nonbondedMethod=CutoffNonPeriodic,
             nonbondedCutoff=1.5 * unit.nanometer,
             solventDielectric=60,
             constraints=None,
@@ -300,7 +299,13 @@ class PolymerChain:
         simulation.context.setPositions(crd.positions)
         simulation.reporters.append(
             StateDataReporter(
-                stdout, 1_000, step=True, totalEnergy=True, separator="\t"
+                stdout,
+                1_000,
+                step=True,
+                time=True,
+                totalEnergy=True,
+                speed=True,
+                separator="\t",
             )
         )
         if useBMH:
@@ -324,7 +329,11 @@ class PolymerChain:
             PDBReporter(f"{self.id.lower()}_relax.pdb", nstep)
         )
         print("STARting DYNAmics")
-
+        simulation.step(10_000)
+        integrator.setStepSize(0.002 * unit.picoseconds)
+        simulation.step(10_000)
+        integrator.setStepSize(0.003 * unit.picoseconds)
+        simulation.context.reinitialize(preserveState=True)
         simulation.step(nstep)
         state = simulation.context.getState(
             getPositions=True, getVelocities=True
@@ -455,12 +464,12 @@ class PolymerChain:
             f.write(f"open unit 15 card name {solvent}\n")  #
             f.write(f"read coor append card unit 15 \n")
             f.write(
-                f"bomblev -1\ndelete atom sele .byres. (segid {solvent_res} .and. segid {self.id} .around. 3.5) end\n"
+                f"bomblev -1\ndelete atom sele .byres. (segid {solvent_res} .and. segid {self.id} .around. 5.5) end\n"
             )
             if num_of_Polymers != 1:
                 for i in range(num_of_Polymers):
                     f.write(
-                        f"bomblev -1\ndelete atom sele .byres. (segid {solvent_res} .and. segid {self.id}_{i+1} .around. 3.5) end\n"
+                        f"bomblev -1\ndelete atom sele .byres. (segid {solvent_res} .and. segid {self.id}_{i+1} .around. 5.5) end\n"
                     )
         if salt:
             f.write(
@@ -513,11 +522,10 @@ class PolymerChain:
         num_of_Polymers,
         solvent_res,
         solvent_num,
-        pack=False,
         build=True,
         verbose=False,
         pdb_file="default",
-        solvent_pdb="default",
+        usepdb=False,
         crd="default",
         boxsize=1500,
         salt=False,
@@ -531,6 +539,7 @@ class PolymerChain:
         read=False,
         n_proc=16,
         mini=False,
+        iter=1,
         chsize=50000000,
     ):
         ######################################################################################################
@@ -573,7 +582,7 @@ class PolymerChain:
         if not found:
             print(f"ERRor something not in toppar!")
             return
-        spacing = 6
+        spacing = 7
         if square:
             x = np.linspace(0, int(boxsize), int(boxsize // spacing))
             y = np.linspace(0, int(boxsize), int(boxsize // spacing))
@@ -606,11 +615,26 @@ class PolymerChain:
         f.write(f"open unit 1 card name {self.id.lower()}.psf\n")
         f.write(f"read psf card unit 1 \n")
         f.write("close unit 1\n")
-        f.write(f"open unit 2 card name {crd}\n")  #
-        f.write(f"read coor card unit 2 \n")
-        f.write("close unit 2\n")
+        if usepdb:
+            f.write(f"bomblev -1\n")  #
+            f.write(f"open unit 2 form read name {pdb_file}\n")  #
+            f.write(f"read coor pdb unit 2 \n")
+            f.write("close unit 2\n")
+        elif not usepdb:
+            f.write(f"open unit 2 card name {crd}\n")  #
+            f.write(f"read coor card unit 2 \n")
+            f.write("close unit 2\n")
+        f.write(f"coor stat sele all end \n")
+        if square:
+            f.write(
+                f"calc x = {boxsize/2}-?XAVE\ncalc y = {boxsize/2}-?YAVE\ncalc z = {boxsize/2}-?ZAVE"
+            )
+        else:
+            f.write(
+                f"calc x = {boxsize/2}-?XAVE\ncalc y = {(boxsize*.9)/2}-?YAVE\ncalc z = {(boxsize*.8)/2}-?ZAVE\n"
+            )
         f.write(
-            f"coor trans sele segid {self.id} end xdir {boxsize/2} ydir {boxsize/2} zdir {boxsize/2}\n"
+            f"\ncoor trans xdir @x\ncoor trans ydir @y \ncoor trans zdir @z\n"
         )
         if num_of_Polymers != 1:
             f.write(
@@ -662,15 +686,17 @@ class PolymerChain:
         f.write(f"open unit 15 card name {solvent}\n")  #
         f.write(f"read coor append card unit 15 \n")
         f.write(
-            f"bomblev -1\ndelete atom sele .byres. (segid {solvent_res} .and. segid {self.id} .around. 3.5) end\n"
+            f"bomblev -1\ndelete atom sele .byres. (segid {solvent_res} .and. segid {self.id} .around. 5.5) end\n"
         )
         if num_of_Polymers != 1:
             for i in range(num_of_Polymers):
                 f.write(
-                    f"bomblev -1\ndelete atom sele .byres. (segid {solvent_res} .and. segid {self.id}_{i+1} .around. 3.5) end\n"
+                    f"bomblev -1\ndelete atom sele .byres. (segid {solvent_res} .and. segid {self.id}_{i+1} .around. 5.5) end\n"
                 )
         if mini:
-            f.write("\nenergy\nmini sd nstep 500\n")
+            # f.write("\nbomblev -4\n")
+            for i in range(iter):
+                f.write("\nenergy\nmini sd nstep 500\n")
         f.write(
             f"open unit 10 write form name ./{self.id.lower()}_in_{solvent_res.lower()}.psf\nwrite unit 10 psf xplor card\nclose unit 10\n"
         )
@@ -759,7 +785,10 @@ class PolymerChain:
             except:
                 print("failed to Transform into octahedron")
         print("MINImizing ENERgy")
-        # simulation.minimizeEnergy(maxIterations=2_000_000)
+        try:
+            simulation.minimizeEnergy(maxIterations=200_000)
+        except:
+            print("ERRor while minimizing")
         print(simulation.context.getState(getEnergy=True).getPotentialEnergy())
         simulation.context.setVelocitiesToTemperature(5 * unit.kelvin)
         simulation.reporters.append(

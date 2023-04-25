@@ -541,6 +541,7 @@ class PolymerChain:
         mini=False,
         iter=1,
         chsize=50000000,
+        spacing=5,
     ):
         ######################################################################################################
         ##Set pdbfile for packing to default if not defined
@@ -582,7 +583,6 @@ class PolymerChain:
         if not found:
             print(f"ERRor something not in toppar!")
             return
-        spacing = 7
         if square:
             x = np.linspace(0, int(boxsize), int(boxsize // spacing))
             y = np.linspace(0, int(boxsize), int(boxsize // spacing))
@@ -759,7 +759,7 @@ class PolymerChain:
             constraints=None,
         )
         integrator = NoseHooverIntegrator(
-            T * unit.kelvin, 50 / unit.picosecond, 0.00005 * unit.picoseconds
+            5 * unit.kelvin, 50 / unit.picosecond, 0.00005 * unit.picoseconds
         )
         if useBMH:
             system, epsilons, sigm = sd.eliminate_LJ(psf)
@@ -785,10 +785,10 @@ class PolymerChain:
             except:
                 print("failed to Transform into octahedron")
         print("MINImizing ENERgy")
-        try:
-            simulation.minimizeEnergy(maxIterations=200_000)
-        except:
-            print("ERRor while minimizing")
+        # try:
+        #     simulation.minimizeEnergy(maxIterations=200_000)
+        # except:
+        #     print("ERRor while minimizing")
         print(simulation.context.getState(getEnergy=True).getPotentialEnergy())
         simulation.context.setVelocitiesToTemperature(5 * unit.kelvin)
         simulation.reporters.append(
@@ -809,18 +809,15 @@ class PolymerChain:
         )
         simulation.reporters.append(DCDReporter(f"pre_comp.dcd", 10_000))
         integrator.setTemperature(5 * unit.kelvin)
+
         integrator.setStepSize(0.000001 * unit.picoseconds)
         simulation.context.reinitialize(preserveState=True)
-        simulation.step(100_000)
-        integrator.setStepSize(0.000002 * unit.picoseconds)
-        simulation.context.reinitialize(preserveState=True)
-        simulation.step(100_000)
-        integrator.setStepSize(0.000003 * unit.picoseconds)
-        simulation.context.reinitialize(preserveState=True)
-        simulation.step(100_000)
-        integrator.setStepSize(0.00004 * unit.picoseconds)
-        simulation.context.reinitialize(preserveState=True)
-        simulation.step(100_000)
+        simulation.step(5_000_000)
+        simulation.minimizeEnergy(maxIterations=200_000)
+        simulation.context.setVelocitiesToTemperature(5 * unit.kelvin)
+        simulation.step(200_000)
+        simulation.context.setVelocitiesToTemperature(5 * unit.kelvin)
+        simulation.step(200_000)
         integrator.setStepSize(0.00005 * unit.picoseconds)
         simulation.context.reinitialize(preserveState=True)
         simulation.step(300_000)

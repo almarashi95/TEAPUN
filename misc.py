@@ -39,7 +39,7 @@ def gen_box(
     boxlx = max_crds[0] - min_crds[0]
     boxly = max_crds[1] - min_crds[1]
     boxlz = max_crds[2] - min_crds[2]
-    a = np.max([boxlx, boxly, boxlz])
+    a = 1.002 * np.max([boxlx, boxly, boxlz])
     if enforce_cubic:
         print(f"Forced Cubic Box {a=}")
         psf.setBox(a, a, a)
@@ -53,6 +53,9 @@ def gen_box(
         psf.boxVectors = [(a) * v for v in vectors]
 
     else:
+        boxlx *= 1.005
+        boxly *= 1.005
+        boxlz *= 1.005
         print("BoxDimensions:")
         print(f"{boxlx, boxly, boxlz}")
         psf.setBox(boxlx, boxly, boxlz)

@@ -728,6 +728,7 @@ class PolymerChain:
         freeze=False,
         multiplicator=1.1,
         octahedron=False,
+        mini=True,
     ):
         print(f"EQUIlibrate Chain\nTEA_PUN powered by openMM")
         psf = CharmmPsfFile(psf)
@@ -785,12 +786,10 @@ class PolymerChain:
             except:
                 print("failed to Transform into octahedron")
         print("MINImizing ENERgy")
-        # try:
-        #     simulation.minimizeEnergy(maxIterations=200_000)
+
         # except:
         #     print("ERRor while minimizing")
         print(simulation.context.getState(getEnergy=True).getPotentialEnergy())
-        simulation.context.setVelocitiesToTemperature(5 * unit.kelvin)
         simulation.reporters.append(
             StateDataReporter(
                 stdout,
@@ -807,27 +806,35 @@ class PolymerChain:
                 separator="\t",
             )
         )
+        if mini:
+            integrator.setTemperature(5 * unit.kelvin)
+            integrator.setStepSize(0.000001 * unit.picoseconds)
+            simulation.context.reinitialize(preserveState=True)
+            simulation.context.setVelocitiesToTemperature(5 * unit.kelvin)
+            simulation.step(1_000)
+            simulation.minimizeEnergy(maxIterations=20_000)
         simulation.reporters.append(DCDReporter(f"pre_comp.dcd", 10_000))
         integrator.setTemperature(5 * unit.kelvin)
-
         integrator.setStepSize(0.000001 * unit.picoseconds)
         simulation.context.reinitialize(preserveState=True)
-        simulation.step(5_000_000)
-        simulation.minimizeEnergy(maxIterations=200_000)
         simulation.context.setVelocitiesToTemperature(5 * unit.kelvin)
-        simulation.step(200_000)
-        simulation.context.setVelocitiesToTemperature(5 * unit.kelvin)
-        simulation.step(200_000)
-        integrator.setStepSize(0.00005 * unit.picoseconds)
-        simulation.context.reinitialize(preserveState=True)
-        simulation.step(300_000)
-        # simulation.minimizeEnergy(maxIterations=2_000)
+        simulation.step(500_000)
         state = simulation.context.getState(
             getPositions=True, getVelocities=True
         )
         with open("init.rst", "w") as f:
             f.write(XmlSerializer.serialize(state))
         # simulation.minimizeEnergy(maxIterations=200_000_000)
+        # simulation.minimizeEnergy(maxIterations=200_000)
+        # simulation.context.setVelocitiesToTemperature(5 * unit.kelvin)
+        # simulation.step(200_000)
+        # simulation.context.setVelocitiesToTemperature(5 * unit.kelvin)
+        # simulation.step(200_000)
+        # integrator.setStepSize(0.00005 * unit.picoseconds)
+        # simulation.context.reinitialize(preserveState=True)
+        # simulation.step(300_000)
+        # simulation.minimizeEnergy(maxIterations=2_000)
+
         integrator.setTemperature(T * unit.kelvin)
         integrator.setStepSize(dt * unit.picoseconds)
         simulation.context.reinitialize(preserveState=True)
@@ -963,6 +970,7 @@ class PolymerChain:
         useBMH=False,
         freeze=False,
         uPME=False,
+        pdb="init.pdb",
     ):
         if uPME:
             nb_meth = PME
@@ -970,7 +978,7 @@ class PolymerChain:
             nb_meth = CutoffPeriodic
         print(f"EQUIlibrate Chain\nTEA_PUN powered by openMM")
         psf = CharmmPsfFile(psf)
-        pdb = PDBFile("init.pdb")
+        # pdb = PDBFile("init.pdb")
         params = CharmmParameterSet(self.toppar)
         DEFAULT_PLATFORMS = "CUDA", "OpenCL", "CPU"
         enabled_platforms = [
@@ -989,7 +997,7 @@ class PolymerChain:
         )
         psf = misc.gen_box(
             psf,
-            pdb,
+            CharmmCrdFile("p1_in_bmw.crd"),
         )
         system = psf.createSystem(
             params,

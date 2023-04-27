@@ -5,6 +5,7 @@ from openmm import Vec3
 from datetime import date
 from itertools import product
 import parmed as pmd
+import gc
 
 
 def find_patch(m1, m2):
@@ -290,6 +291,7 @@ def make_psf(psf, n_solv):
     n_atoms = len(residue.atoms)  # number of atoms in the original residue
 
     for i in range(1, n_solv):
+        # print(i, end="\r")
         residue_copy = pmd.Residue(
             name=residue.name,
             number=residue.number + i,
@@ -307,6 +309,8 @@ def make_psf(psf, n_solv):
             )
             topology.atoms.append(a)
             residue_copy.add_atom(a)
+
+    # topology.save(psf, overwrite=True)
 
     for j in range(residue.idx + 1, len(topology.residues)):
         r = topology.residues[j]
@@ -371,3 +375,5 @@ def make_psf(psf, n_solv):
                     )
                 )
     topology.save(psf, overwrite=True)
+    del topology
+    gc.collect()

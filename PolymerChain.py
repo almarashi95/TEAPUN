@@ -671,7 +671,7 @@ class PolymerChain:
         print("invoking charmm-process")
         f = open("tmp.inp", "w")
         f.write(
-            f"dimension chsize 50000000\nioformat extended\nstream {self.toppar}\nset parall {n_proc}\n"
+            f"dimension chsize {int(chsize)}\nioformat extended\nstream {self.toppar}\nset parall {n_proc}\n"
         )
         f.write(
             f"open unit 1 card name {self.id.lower()}_in_{solvent_res.lower()}.psf\n"

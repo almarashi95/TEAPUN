@@ -92,6 +92,35 @@ def solvation_coordinates(x, y, z, solvent_res, atoms):
     return "slvnt.crd"
 
 
+def fsolvation_coordinates(x, y, z, solvent_res, atoms):
+    # for now only works for water
+    coords = product(x, y, z)
+    f = open("slvnt.crd", "w")
+    f.write("* NONE *\n")
+    f.write(f"*  DATE {date.today()} CREATED BY TEAPUN\n*\n")
+    f.write(f"     {len(list(coords))*len(atoms)}  EXT\n")
+    coords = product(x, y, z)
+    ctr1 = 1
+    for ctr, c in enumerate(coords):
+        x = c[0]
+        y = c[1]
+        z = c[2]
+        f.write(
+            f"{ctr1:10d}{ctr+1:10d}  {solvent_res:<8.8s}  {atoms[0]:<8.8s}{x+1:20.10f}{y:20.10f}{z+1:20.10f}  {solvent_res:<8.8s}  {ctr+1:<8d}0.0000000000\n"
+        )
+        ctr1 += 1
+        f.write(
+            f"{ctr1:10d}{ctr+1:10d}  {solvent_res:<8.8s}  {atoms[1]:<8.8s}{x:20.10f}{y+1:20.10f}{z+1:20.10f}  {solvent_res:<8.8s}  {ctr+1:<8d}0.0000000000\n"
+        )
+        ctr1 += 1
+        f.write(
+            f"{ctr1:10d}{ctr+1:10d}  {solvent_res:<8.8s}  {atoms[2]:<8.8s}{x:20.10f}{y:20.10f}{z:20.10f}  {solvent_res:<8.8s}  {ctr+1:<8d}0.0000000000\n"
+        )
+        ctr1 += 1
+    f.close()
+    return "slvnt.crd"
+
+
 def pack_system(
     polymerchainpdb,
     n,

@@ -269,7 +269,7 @@ class PolymerChain:
                 break
         print("Using platform:", platform.getName())
         prop = (
-            dict(CudaPrecision="single")
+            dict(CudaPrecision="mixed")
             if platform.getName() == "CUDA"
             else dict()
         )
@@ -638,7 +638,7 @@ class PolymerChain:
         )
         if num_of_Polymers != 1:
             f.write(
-                f"coor trans sele segid {self.id} end xdir -50 ydir 0 zdir 0\n"
+                f"coor trans sele segid {self.id} end xdir -100 ydir 0 zdir 0\n"
             )
             f.write(f"rename segid {self.id}_1 sele all end\n")
             f.write(f"\n")
@@ -648,7 +648,7 @@ class PolymerChain:
                     f"coor dupl sele segid {self.id}_{i+1} end sele segid  {self.id}_{i+2} end\n"
                 )
                 f.write(
-                    f"coor trans sele segid {self.id}_{i+2} end xdir 70 ydir 0 zdir 0\n"
+                    f"coor trans sele segid {self.id}_{i+2} end xdir 250 ydir 0 zdir 0\n"
                 )
         f.write(f"write coor card name {self.id.lower()}_n.crd\n")
         f.write(
@@ -748,7 +748,7 @@ class PolymerChain:
                 break
         print(f"Using {platform.getName()}")
         prop = (
-            dict(CudaPrecision="single")
+            dict(CudaPrecision="mixed")
             if platform.getName() == "CUDA"
             else dict()
         )
@@ -991,7 +991,7 @@ class PolymerChain:
                 break
         print(f"Using {platform.getName()}")
         prop = (
-            dict(CudaPrecision="single")
+            dict(CudaPrecision="mixed")
             if platform.getName() == "CUDA"
             else dict()
         )
@@ -1006,7 +1006,7 @@ class PolymerChain:
             constraints=None,
         )
         integrator = NoseHooverIntegrator(
-            T * unit.kelvin, 50 / unit.picosecond, 0.0001 * unit.picoseconds
+            T * unit.kelvin, 50 / unit.picosecond, dt * unit.picoseconds
         )
 
         if useBMH:
@@ -1197,7 +1197,7 @@ class PolymerChain:
             nb_meth = CutoffPeriodic
         print(f"EQUIlibrate Chain\nTEA_PUN powered by openMM")
         psf = CharmmPsfFile(psf)
-        pdb = PDBFile("init.pdb")
+        # pdb = PDBFile("init.pdb")
         params = CharmmParameterSet(self.toppar)
         DEFAULT_PLATFORMS = "CUDA", "OpenCL", "CPU"
         enabled_platforms = [
@@ -1210,11 +1210,14 @@ class PolymerChain:
                 break
         print(f"Using {platform.getName()}")
         prop = (
-            dict(CudaPrecision="single")
+            dict(CudaPrecision="mixed")
             if platform.getName() == "CUDA"
             else dict()
         )
-        psf = misc.gen_box(psf, pdb, enforce_cubic=True)
+        psf = misc.gen_box(
+            psf,
+            CharmmCrdFile("p1_in_bmw.crd"),
+        )
         system = psf.createSystem(
             params,
             nonbondedMethod=nb_meth,

@@ -636,20 +636,7 @@ class PolymerChain:
         f.write(
             f"\ncoor trans xdir @x\ncoor trans ydir @y \ncoor trans zdir @z\n"
         )
-        if num_of_Polymers != 1:
-            f.write(
-                f"coor trans sele segid {self.id} end xdir -100 ydir 0 zdir 0\n"
-            )
-            f.write(f"rename segid {self.id}_1 sele all end\n")
-            f.write(f"\n")
-            for i in range(num_of_Polymers - 1):
-                f.write(f"generate {self.id}_{i+2} duplicate {self.id}_1\n")
-                f.write(
-                    f"coor dupl sele segid {self.id}_{i+1} end sele segid  {self.id}_{i+2} end\n"
-                )
-                f.write(
-                    f"coor trans sele segid {self.id}_{i+2} end xdir 250 ydir 0 zdir 0\n"
-                )
+
         f.write(f"write coor card name {self.id.lower()}_n.crd\n")
         f.write(
             f"read sequence {solvent_res} 1\ngenerate {solvent_res} first none last none noangle nodihedral setup warn\n"
@@ -685,6 +672,20 @@ class PolymerChain:
 
         f.write(f"open unit 15 card name {solvent}\n")  #
         f.write(f"read coor append card unit 15 \n")
+        if num_of_Polymers != 1:
+            f.write(
+                f"coor trans sele segid {self.id} end xdir -100 ydir 0 zdir 0\n"
+            )
+            f.write(f"rename segid {self.id}_1 sele segid {self.id} end\n")
+            f.write(f"\n")
+            for i in range(num_of_Polymers - 1):
+                f.write(f"generate {self.id}_{i+2} duplicate {self.id}_1\n")
+                f.write(
+                    f"coor dupl sele segid {self.id}_{i+1} end sele segid  {self.id}_{i+2} end\n"
+                )
+                f.write(
+                    f"coor trans sele segid {self.id}_{i+2} end xdir {250*(i+1)} ydir 0 zdir 0\n"
+                )
         f.write(
             f"bomblev -1\ndelete atom sele .byres. (segid {solvent_res} .and. segid {self.id} .around. 5.5) end\n"
         )
@@ -729,6 +730,7 @@ class PolymerChain:
         multiplicator=1.1,
         octahedron=False,
         mini=True,
+        boxdim=[],
     ):
         print(f"EQUIlibrate Chain\nTEA_PUN powered by openMM")
         psf = CharmmPsfFile(psf)
@@ -737,7 +739,7 @@ class PolymerChain:
         except:
             pdb = CharmmCrdFile(pdb)
         params = CharmmParameterSet(self.toppar)
-        DEFAULT_PLATFORMS = "CUDA", "OpenCL", "CPU"
+        DEFAULT_PLATFORMS = "CPU", "CUDA", "OpenCL"
         enabled_platforms = [
             Platform.getPlatform(i).getName()
             for i in range(Platform.getNumPlatforms())
@@ -752,7 +754,15 @@ class PolymerChain:
             if platform.getName() == "CUDA"
             else dict()
         )
-        psf = misc.gen_box(psf, pdb)
+        try:
+            psf.setBox(
+                boxdim[0],
+                boxdim[1],
+                boxdim[2],
+            )
+            print("...")
+        except:
+            psf = misc.gen_box(psf, pdb)
         system = psf.createSystem(
             params,
             nonbondedMethod=CutoffPeriodic,
@@ -980,7 +990,7 @@ class PolymerChain:
         psf = CharmmPsfFile(psf)
         # pdb = PDBFile("init.pdb")
         params = CharmmParameterSet(self.toppar)
-        DEFAULT_PLATFORMS = "CUDA", "OpenCL", "CPU"
+        DEFAULT_PLATFORMS = "CPU", "CUDA", "OpenCL"
         enabled_platforms = [
             Platform.getPlatform(i).getName()
             for i in range(Platform.getNumPlatforms())
@@ -1199,7 +1209,7 @@ class PolymerChain:
         psf = CharmmPsfFile(psf)
         # pdb = PDBFile("init.pdb")
         params = CharmmParameterSet(self.toppar)
-        DEFAULT_PLATFORMS = "CUDA", "OpenCL", "CPU"
+        DEFAULT_PLATFORMS = "CPU", "CUDA", "OpenCL"
         enabled_platforms = [
             Platform.getPlatform(i).getName()
             for i in range(Platform.getNumPlatforms())

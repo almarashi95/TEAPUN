@@ -687,13 +687,17 @@ class PolymerChain:
                     f"coor trans sele segid {self.id}_{i+2} end xdir {250*(i+1)} ydir 0 zdir 0\n"
                 )
         f.write(
-            f"bomblev -1\ndelete atom sele .byres. (segid {solvent_res} .and. segid {self.id} .around. 5.5) end\n"
+            f"bomblev -1\ndelete atom sele .byres. (segid {self.id} .around. 5.5 .and. segid {solvent_res}) end\n"
         )
         if num_of_Polymers != 1:
+            f.write(f"bomblev -1\ndelete atom sele ")
             for i in range(num_of_Polymers):
+                if i != 0:
+                    f.write(" .or. ")
                 f.write(
-                    f"bomblev -1\ndelete atom sele .byres. (segid {solvent_res} .and. segid {self.id}_{i+1} .around. 5.5) end\n"
+                    f".byres. (segid {self.id}_{i+1} .around. 5.5  .and. segid {solvent_res})"
                 )
+            f.write(" end\n")
         if mini:
             # f.write("\nbomblev -4\n")
             for i in range(iter):

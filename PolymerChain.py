@@ -735,11 +735,14 @@ class PolymerChain:
         octahedron=False,
         mini=True,
         boxdim=[],
+        debug=False,
     ):
         print(f"EQUIlibrate Chain\nTEA_PUN powered by openMM")
         psf = CharmmPsfFile(psf)
         try:
             pdb = PDBFile(pdb)
+            if debug:
+                print(f"reading {pdb} done")
         except:
             pdb = CharmmCrdFile(pdb)
         params = CharmmParameterSet(self.toppar)
@@ -773,6 +776,8 @@ class PolymerChain:
             nonbondedCutoff=1.5 * unit.nanometer,
             constraints=None,
         )
+        if debug:
+            print(f"system created")
         integrator = NoseHooverIntegrator(
             5 * unit.kelvin, 50 / unit.picosecond, 0.00005 * unit.picoseconds
         )
@@ -786,12 +791,20 @@ class PolymerChain:
                 sigm=sigm,
                 NBfix=True,
             )
+            if debug:
+                print(f"using BMH")
         if freeze:
             system = sd.freeze_polymer(psf, self)
+            if debug:
+                print(f"frozen Polymer")
         simulation = Simulation(
             psf.topology, system, integrator, platform, prop
         )
+        if debug:
+            print(f"Simulation defined")
         simulation.context.setPositions(pdb.positions)
+        if debug:
+            print(f"Postions set")
         if octahedron:
             try:
                 boxVectors = sd.set_octahedron(psf, multiplicator)
@@ -803,7 +816,9 @@ class PolymerChain:
 
         # except:
         #     print("ERRor while minimizing")
-        print(simulation.context.getState(getEnergy=True).getPotentialEnergy())
+        # print(simulation.context.getState(getEnergy=True).getPotentialEnergy())
+        if debug:
+            print("defining reporters")
         simulation.reporters.append(
             StateDataReporter(
                 stdout,
@@ -821,13 +836,18 @@ class PolymerChain:
             )
         )
         if mini:
+            if debug:
+                print("trying minimization")
             integrator.setTemperature(5 * unit.kelvin)
             integrator.setStepSize(0.000001 * unit.picoseconds)
             simulation.context.reinitialize(preserveState=True)
             simulation.context.setVelocitiesToTemperature(5 * unit.kelvin)
             simulation.step(1_000)
             simulation.minimizeEnergy(maxIterations=20_000)
+
         simulation.reporters.append(DCDReporter(f"pre_comp.dcd", 10_000))
+        if debug:
+            print("dcd-writer defined")
         integrator.setTemperature(5 * unit.kelvin)
         integrator.setStepSize(0.000001 * unit.picoseconds)
         simulation.context.reinitialize(preserveState=True)

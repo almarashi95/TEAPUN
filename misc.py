@@ -403,6 +403,6 @@ def make_psf(psf, n_solv):
                         type=cmap.type,
                     )
                 )
-    topology.save(psf, overwrite=True)
+    topology.save(f'solv_{psf}', overwrite=True)
     del topology
     gc.collect()

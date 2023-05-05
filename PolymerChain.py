@@ -661,7 +661,7 @@ class PolymerChain:
             f"dimension chsize {int(chsize)} \nioformat extended\nstream {self.toppar}\nset parall {n_proc}\n"
         )
         f.write(
-            f"open unit 1 card name {self.id.lower()}_in_{solvent_res.lower()}.psf\n"
+            f"open unit 1 card name solv_{self.id.lower()}_in_{solvent_res.lower()}.psf\n"
         )
         f.write(f"read psf card unit 1 \n")
         f.write("close unit 1\n")
@@ -736,6 +736,7 @@ class PolymerChain:
         mini=True,
         boxdim=[],
         debug=False,
+        pltfrm='default'
     ):
         print(f"EQUIlibrate Chain\nTEA_PUN powered by openMM")
         psf = CharmmPsfFile(psf)
@@ -746,7 +747,10 @@ class PolymerChain:
         except:
             pdb = CharmmCrdFile(pdb)
         params = CharmmParameterSet(self.toppar)
-        DEFAULT_PLATFORMS = "CPU", "CUDA", "OpenCL"
+        if pltfrm == 'default':
+            DEFAULT_PLATFORMS = "CUDA","CPU", "OpenCL"
+        else:
+            DEFAULT_PLATFORMS = pltfrm, "OpenCL"
         enabled_platforms = [
             Platform.getPlatform(i).getName()
             for i in range(Platform.getNumPlatforms())
@@ -838,13 +842,21 @@ class PolymerChain:
         if mini:
             if debug:
                 print("trying minimization")
+            #simulation.minimizeEnergy(maxIterations=99)
+            if debug:
+                print("exploring slow Dynamics")
             integrator.setTemperature(5 * unit.kelvin)
-            integrator.setStepSize(0.000001 * unit.picoseconds)
+            integrator.setStepSize(0.0000001 * unit.picoseconds)
+            
             simulation.context.reinitialize(preserveState=True)
+            if debug:
+                print("intermed Integrator set and reinit")
             simulation.context.setVelocitiesToTemperature(5 * unit.kelvin)
+            if debug:
+                print("velocities to 5K")
             simulation.step(1_000)
             simulation.minimizeEnergy(maxIterations=20_000)
-
+            simulation.step(1_000)
         simulation.reporters.append(DCDReporter(f"pre_comp.dcd", 10_000))
         if debug:
             print("dcd-writer defined")

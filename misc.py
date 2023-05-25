@@ -40,12 +40,13 @@ def gen_box(
     boxlx = max_crds[0] - min_crds[0]
     boxly = max_crds[1] - min_crds[1]
     boxlz = max_crds[2] - min_crds[2]
-    a = 1.002 * np.max([boxlx, boxly, boxlz])
+    a = np.max([boxlx, boxly, boxlz])
+
     if enforce_cubic:
-        print(f"Forced Cubic Box {a=}")
+        # print(f"Forced Cubic Box {a=}")
         psf.setBox(a, a, a)
     elif octahedron:
-        print(f"Octahedral BoxDimensions: {a}")
+        # print(f"Octahedral BoxDimensions: {a}")
         vectors = (
             Vec3(1, 0, 0),
             Vec3(1 / 3, 2 * np.sqrt(2) / 3, 0),
@@ -57,8 +58,8 @@ def gen_box(
         boxlx *= 1.005
         boxly *= 1.005
         boxlz *= 1.005
-        print("BoxDimensions:")
-        print(f"{boxlx, boxly, boxlz}")
+        # print("BoxDimensions:")
+        # print(f"{boxlx, boxly, boxlz}")
         psf.setBox(boxlx, boxly, boxlz)
     return psf
 
@@ -403,6 +404,6 @@ def make_psf(psf, n_solv):
                         type=cmap.type,
                     )
                 )
-    topology.save(f'solv_{psf}', overwrite=True)
+    topology.save(f"solv_{psf}", overwrite=True)
     del topology
     gc.collect()

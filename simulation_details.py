@@ -49,8 +49,9 @@ def usemodBMH(PolymerChain, psf, epsilons, sigm, NBfix=False, a=7.953, f_param=5
     group = []
     if NBfix:
         for i in psf.topology.chains():
-            print(i.id)
+            print(f"Implementing NBFIX for {i.id}")
             if i.id.startswith(PolymerChain.id.upper()):
+                print('as Polymer')
                 for f in i.atoms():
                     if f.name != "STYR":
                         group.append(1)
@@ -70,7 +71,7 @@ def usemodBMH(PolymerChain, psf, epsilons, sigm, NBfix=False, a=7.953, f_param=5
     energy = "((scale*eps)/((1-(f/a))-((6-f)/12)))"
     energy += "*((((6-f)/12)*((rm/r)^12))-((rm/r)^6)"
     energy += "+((f/a)*exp(a*(1-(r/rm)))))"
-    energy += ";scale=select(group1+group2,1,1.2);"  # sclaling for solvent interaction
+    energy += ";scale=select(group1+group2,1,1.1);"  # sclaling for solvent interaction
     energy += "eps=sqrt(eps1*eps2);rm=0.5*(rm1+rm2)"  # Lorentz-Berthelot rules
     nb_force = CustomNonbondedForce(energy)
     nb_force.addGlobalParameter("a", a)
@@ -78,13 +79,13 @@ def usemodBMH(PolymerChain, psf, epsilons, sigm, NBfix=False, a=7.953, f_param=5
     nb_force.addPerParticleParameter("eps")
     nb_force.addPerParticleParameter("rm")
     nb_force.addPerParticleParameter("group")
-    # print(sigm)
+    
     for i in range(j.getNumParticles()):
         nb_force.addParticle([epsilons[i], sigm[i], group[i]])
     nb_force.setNonbondedMethod(CustomNonbondedForce.CutoffPeriodic)
     nb_force.setCutoffDistance(1.5 * nanometers)
     system.addForce(nb_force)
-    print(nb_force.getNumParticles())
+    print(f"Number of Particles in BMH-Forcegroup {nb_force.getNumParticles()}")
     for index in range(j.getNumExceptions()):
         l, k, chargeprod, sigma, epsilon = j.getExceptionParameters(index)
         nb_force.addExclusion(l, k)

@@ -906,7 +906,7 @@ class PolymerChain:
         npt=False,
         p=1.0,
         nbfix=False,
-        zK=True,
+        zK=False,
         n="",
         target=1.0,
     ):
